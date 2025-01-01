@@ -9,10 +9,30 @@
     .setting-item {
       margin: 15px 0;
     }
+    .setting-item label {
+      display: block;
+      margin-bottom: 5px;
+    }
+    .setting-item input, .setting-item select {
+      width: 100%;
+      padding: 5px;
+    }
   </style>
 </head>
 <body>
   <h2>学习内容设置</h2>
+  <div class="setting-item">
+    <label>Azure OpenAI Endpoint:</label>
+    <input type="text" id="endpoint" placeholder="https://your-resource.openai.azure.com/">
+  </div>
+  <div class="setting-item">
+    <label>Azure OpenAI API Key:</label>
+    <input type="password" id="apiKey">
+  </div>
+  <div class="setting-item">
+    <label>Deployment ID:</label>
+    <input type="text" id="deploymentId" placeholder="gpt-35-turbo">
+  </div>
   <div class="setting-item">
     <label>学习主题：</label>
     <select id="learningTopic">
@@ -20,13 +40,18 @@
       <option value="programming">编程</option>
       <option value="language">语言学习</option>
       <option value="academic">学术内容</option>
+      <option value="technology">科技</option>
+      <option value="science">科学</option>
+      <option value="math">数学</option>
+      <option value="custom">自定义</option>
     </select>
   </div>
-  <div class="setting-item">
-    <label>OpenAI API Key:</label>
-    <input type="password" id="apiKey">
+  <div class="setting-item" id="customTopicContainer" style="display: none;">
+    <label>自定义主题：</label>
+    <input type="text" id="customTopic" placeholder="请输入学习主题">
   </div>
   <button id="saveSettings">保存设置</button>
+  <div id="status" style="margin-top: 10px;"></div>
   <script src="options.js"></script>
 </body>
 </html> 

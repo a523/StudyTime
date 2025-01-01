@@ -4,11 +4,16 @@ let isInitialized = false;
 let retryCount = 0;
 const MAX_RETRIES = 3;
 
+// 添加缓存对象
+const titleCache = new Map();
+const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24小时缓存
+
 // 初始化函数
 async function initialize() {
   if (isInitialized) return;
   
   try {
+    await loadCache(); // 加载缓存
     
     // 检查扩展是否有效
     if (!chrome.runtime?.id) {
@@ -137,9 +142,28 @@ async function processVideoCard(card) {
     
     const title = await findVideoTitle(card);
     if (!title) return;
+
+    // 添加加载状态
+    card.classList.add('study-filter-loading');
     
-    const isLearningContent = await checkIfLearningContent(title);
-    console.log('Title:', title, 'isLearning:', isLearningContent);
+    // 不断尝试直到成功
+    let isLearningContent = null;
+    while (isLearningContent === null) {
+      try {
+        isLearningContent = await checkIfLearningContent(title);
+      } catch (error) {
+        if (error.message.includes('call rate limit')) {
+          // 如果是速率限制错误，等待后重试
+          await new Promise(resolve => setTimeout(resolve, 8000));
+          continue;
+        }
+        // 其他错误则抛出
+        throw error;
+      }
+    }
+
+    // 移除加载状态
+    card.classList.remove('study-filter-loading');
     
     if (!isLearningContent) {
       applyBlurEffect(card, title);
@@ -149,6 +173,8 @@ async function processVideoCard(card) {
     card.dataset.processed = 'true';
   } catch (error) {
     console.error('Error processing video card:', error);
+    // 发生错误时移除加载状态
+    card.classList.remove('study-filter-loading');
   }
 }
 
@@ -179,15 +205,14 @@ async function findVideoTitle(card) {
 
 // 应用模糊效果
 function applyBlurEffect(card, title) {
-  card.style.filter = 'blur(5px)';
-  card.style.transition = 'filter 0.3s ease';
+  card.classList.add('study-filter-blur');
   
   const handleMouseEnter = () => {
-    card.style.filter = 'none';
+    card.classList.remove('study-filter-blur');
   };
   
   const handleMouseLeave = () => {
-    card.style.filter = 'blur(5px)';
+    card.classList.add('study-filter-blur');
   };
   
   // 移除旧的事件监听器（如果存在）
@@ -213,6 +238,40 @@ function addGlobalStyles() {
       [class*="bili-video-card"] {
         will-change: filter;
         transform: translateZ(0);
+        position: relative;
+      }
+
+      .study-filter-loading {
+        position: relative;
+      }
+
+      .study-filter-loading::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(255, 255, 255, 0.9);
+        z-index: 1;
+      }
+
+      .study-filter-loading::after {
+        content: '分析中...';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 2;
+        background: white;
+        padding: 5px 10px;
+        border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+      }
+
+      .study-filter-blur {
+        filter: blur(5px);
+        transition: filter 0.3s ease;
       }
     `;
     document.head.appendChild(style);
@@ -221,33 +280,65 @@ function addGlobalStyles() {
 
 async function checkIfLearningContent(title) {
   try {
-    const settings = await chrome.storage.sync.get(['apiKey', 'learningTopic']);
+    // 检查缓存
+    const cached = titleCache.get(title);
+    if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
+      return cached.isLearning;
+    }
+
+    const settings = await chrome.storage.sync.get(['apiKey', 'endpoint', 'deploymentId', 'learningTopic', 'customTopic']);
     
-    // DEBUG: 临时返回随机结果，避免频繁调用API
-    return title.length > 25;
-    
-    /* 实际的API调用代码先注释掉
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
+    if (!settings.apiKey || !settings.endpoint || !settings.deploymentId) {
+      console.error('Azure OpenAI settings not configured');
+      return true;
+    }
+
+    const client = new AzureOpenAIClient(
+      settings.endpoint,
+      settings.apiKey
+    );
+
+    let topic = settings.learningTopic;
+    if (topic === 'custom' && settings.customTopic) {
+      topic = settings.customTopic;
+    } else if (topic === 'all') {
+      topic = '学习';
+    }
+
+    const messages = [
+      {
+        role: "system",
+        content: "你是一个视频内容分析助手。你的任务是判断视频是否与学习相关。只需回答'是'或'否'。"
       },
-      body: JSON.stringify({
-        model: "gpt-3.5-turbo",
-        messages: [{
-          role: "user",
-          content: `判断这个视频标题"${title}"是否与${settings.learningTopic}学习相关？只回答是或否。`
-        }]
-      })
+      {
+        role: "user",
+        content: `这个视频标题"${title}"是否与${topic}相关？请只回答是或否。`
+      }
+    ];
+
+    const result = await client.getChatCompletions(
+      settings.deploymentId, 
+      messages,
+      {
+        maxTokens: 10,
+        temperature: 0.1,
+      }
+    );
+
+    const answer = result.choices[0].message?.content?.trim().toLowerCase();
+    const isLearning = answer === '是' || answer === 'yes';
+
+    // 保存到缓存
+    titleCache.set(title, {
+      isLearning,
+      timestamp: Date.now()
     });
 
-    const result = await response.json();
-    return result.choices[0].message.content.includes('是');
-    */
+    return isLearning;
+
   } catch (error) {
     console.error('Error checking learning content:', error);
-    return true; // 出错时默认显示内容
+    return true;
   }
 }
 
@@ -310,4 +401,28 @@ setInterval(() => {
     retryCount = 0;
     initialize();
   }
-}, 5000); 
+}, 5000);
+
+// 在页面卸载时保存缓存到 storage
+window.addEventListener('beforeunload', () => {
+  const cacheData = Array.from(titleCache.entries()).map(([title, data]) => ({
+    title,
+    isLearning: data.isLearning,
+    timestamp: data.timestamp
+  }));
+  
+  chrome.storage.local.set({ titleCache: cacheData });
+});
+
+// 在初始化时加载缓存
+async function loadCache() {
+  const data = await chrome.storage.local.get('titleCache');
+  if (data.titleCache) {
+    data.titleCache.forEach(item => {
+      titleCache.set(item.title, {
+        isLearning: item.isLearning,
+        timestamp: item.timestamp
+      });
+    });
+  }
+} 
