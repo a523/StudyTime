@@ -8,6 +8,22 @@ const MAX_RETRIES = 3;
 const titleCache = new Map();
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24小时缓存
 
+// 添加批处理大小常量
+const BATCH_SIZE = 5; // 每次处理5个标题
+
+// 添加配置常量
+const CONFIG = {
+  BATCH_SIZE: 5,                    // 每批处理的标题数量
+  CACHE_DURATION: 24 * 60 * 60 * 1000, // 缓存时长（24小时）
+  MAX_RETRIES: 3,                   // 最大重试次数
+  RETRY_DELAY: 8000,               // 重试延迟（毫秒）
+  MAX_TITLE_LENGTH: 200,           // 标题最大长度
+  MIN_CONFIDENCE: 0.7,             // AI 判断的最小置信度
+  DEFAULT_TEMPERATURE: 0.1,        // AI 温度参数
+  MAX_TOKENS: 100,                 // 最大 token 数
+  RESPONSE_TIMEOUT: 30000          // 响应超时时间（毫秒）
+};
+
 // 初始化函数
 async function initialize() {
   if (isInitialized) return;
@@ -118,9 +134,7 @@ function cleanup() {
 
 // 处理当前页面上的视频
 async function processCurrentVideos() {
-  // 尝试不同的选择器来匹配B站的视频卡片
   const selectors = [
-    // 新版 B 站首页视频卡片
     '.bili-video-card',
   ];
 
@@ -128,53 +142,214 @@ async function processCurrentVideos() {
     const videoCards = document.querySelectorAll(selector);
     console.log(`Found ${videoCards.length} cards with selector: ${selector}`);
     
-    for (const card of videoCards) {
-      await processVideoCard(card);
+    // 将视频卡片分批处理
+    const batches = [];
+    const cardsToProcess = Array.from(videoCards).filter(card => !card.dataset.processed);
+    
+    for (let i = 0; i < cardsToProcess.length; i += BATCH_SIZE) {
+      batches.push(cardsToProcess.slice(i, i + BATCH_SIZE));
+    }
+
+    // 处理每一批
+    for (const batch of batches) {
+      // 收集这一批的标题
+      const cardTitles = await Promise.all(
+        batch.map(async card => ({
+          card,
+          title: await findVideoTitle(card)
+        }))
+      );
+
+      // 过滤掉没有找到标题的卡片
+      const validCardTitles = cardTitles.filter(item => item.title);
+      
+      if (validCardTitles.length === 0) continue;
+
+      // 为所有卡片添加加载状态
+      validCardTitles.forEach(({ card }) => {
+        card.classList.add('study-filter-loading');
+      });
+
+      try {
+        // 批量检查内容
+        const results = await checkMultipleContents(
+          validCardTitles.map(item => item.title)
+        );
+
+        // 应用结果
+        validCardTitles.forEach(({ card, title }, index) => {
+          card.classList.remove('study-filter-loading');
+          if (!results[index]) {
+            applyBlurEffect(card, title);
+          }
+          card.dataset.processed = 'true';
+        });
+      } catch (error) {
+        // 如果发生错误，移除所有加载状态
+        validCardTitles.forEach(({ card }) => {
+          card.classList.remove('study-filter-loading');
+        });
+        throw error;
+      }
     }
   }
 }
 
-// 处理单个视频卡片
-async function processVideoCard(card) {
+// 添加批量检查内容的函数
+async function checkMultipleContents(titles) {
   try {
-    // 如果已经处理过这个卡片，跳过
-    if (card.dataset.processed) return;
-    
-    const title = await findVideoTitle(card);
-    if (!title) return;
+    // 验证标题
+    const validTitles = titles.map(title => 
+      typeof title === 'string' ? title.slice(0, CONFIG.MAX_TITLE_LENGTH) : ''
+    ).filter(Boolean);
 
-    // 添加加载状态
-    card.classList.add('study-filter-loading');
+    if (validTitles.length === 0) {
+      console.error('No valid titles to process');
+      return titles.map(() => true);
+    }
+
+    // 首先检查缓存
+    const results = validTitles.map(title => {
+      const cached = titleCache.get(title);
+      return cached && (Date.now() - cached.timestamp < CONFIG.CACHE_DURATION)
+        ? { title, result: cached.isLearning, fromCache: true }
+        : { title, fromCache: false };
+    });
+
+    // 筛选出需要请求 API 的标题
+    const titlesToCheck = results.filter(item => !item.fromCache).map(item => item.title);
     
-    // 不断尝试直到成功
-    let isLearningContent = null;
-    while (isLearningContent === null) {
+    if (titlesToCheck.length === 0) {
+      return results.map(item => item.result);
+    }
+
+    const settings = await chrome.storage.sync.get(['apiKey', 'endpoint', 'deploymentId', 'learningTopic', 'customTopic']);
+    
+    if (!settings.apiKey || !settings.endpoint || !settings.deploymentId) {
+      console.error('Azure OpenAI settings not configured');
+      return titles.map(() => true);
+    }
+
+    const client = new AzureOpenAIClient(
+      settings.endpoint,
+      settings.apiKey
+    );
+
+    let topic = settings.learningTopic;
+    if (topic === 'custom' && settings.customTopic) {
+      topic = settings.customTopic;
+    } else if (topic === 'all') {
+      topic = '学习';
+    }
+
+    // 构建批量请求消息
+    const messages = [
+      {
+        role: "system",
+        content: `你是一个视频内容分析助手。你需要判断视频标题是否与${topic}相关。
+                 规则：
+                 1. 对每个标题回答"是"或"否"
+                 2. 用逗号分隔每个回答
+                 3. 回答数量必须与标题数量一致
+                 4. 只输出答案，不要有其他文字
+                 
+                 示例输入：
+                 标题1
+                 标题2
+                 标题3
+                 
+                 示例输出：
+                 是,否,是`
+      },
+      {
+        role: "user",
+        content: `以下视频标题是否与${topic}相关？\n${titlesToCheck.join('\n')}`
+      }
+    ];
+
+    let apiResults = [];
+    let retryCount = 0;
+
+    while (retryCount < CONFIG.MAX_RETRIES) {
       try {
-        isLearningContent = await checkIfLearningContent(title);
+        // 添加超时控制
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Request timeout')), CONFIG.RESPONSE_TIMEOUT);
+        });
+
+        const responsePromise = client.getChatCompletions(
+          settings.deploymentId,
+          messages,
+          {
+            maxTokens: CONFIG.MAX_TOKENS,
+            temperature: CONFIG.DEFAULT_TEMPERATURE,
+          }
+        );
+
+        const response = await Promise.race([responsePromise, timeoutPromise]);
+        const answer = response.choices[0].message?.content?.trim();
+
+        // 验证响应格式
+        if (!answer) {
+          throw new Error('Empty response from API');
+        }
+
+        const answers = answer.split(',').map(r => r.trim().toLowerCase());
+
+        // 验证响应数量
+        if (answers.length !== titlesToCheck.length) {
+          throw new Error(`Response count mismatch: expected ${titlesToCheck.length}, got ${answers.length}`);
+        }
+
+        // 验证每个响应
+        const invalidAnswers = answers.filter(a => a !== '是' && a !== '否' && a !== 'yes' && a !== 'no');
+        if (invalidAnswers.length > 0) {
+          throw new Error(`Invalid answers found: ${invalidAnswers.join(', ')}`);
+        }
+
+        apiResults = answers.map(r => r === '是' || r === 'yes');
+        break;
+
       } catch (error) {
+        retryCount++;
+        console.error(`Attempt ${retryCount} failed:`, error);
+
         if (error.message.includes('call rate limit')) {
-          // 如果是速率限制错误，等待后重试
-          await new Promise(resolve => setTimeout(resolve, 8000));
+          await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
           continue;
         }
-        // 其他错误则抛出
-        throw error;
+
+        if (retryCount >= CONFIG.MAX_RETRIES) {
+          console.error('Max retries reached, returning default results');
+          return titles.map(() => true);
+        }
+
+        // 对于其他错误，稍微等待后重试
+        await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
       }
     }
 
-    // 移除加载状态
-    card.classList.remove('study-filter-loading');
-    
-    if (!isLearningContent) {
-      applyBlurEffect(card, title);
-    }
-    
-    // 标记这个卡片已经处理过
-    card.dataset.processed = 'true';
+    // 更新缓存
+    titlesToCheck.forEach((title, index) => {
+      titleCache.set(title, {
+        isLearning: apiResults[index],
+        timestamp: Date.now()
+      });
+    });
+
+    // 合并缓存结果和 API 结果
+    let resultIndex = 0;
+    return results.map(item => {
+      if (item.fromCache) {
+        return item.result;
+      } else {
+        return apiResults[resultIndex++];
+      }
+    });
+
   } catch (error) {
-    console.error('Error processing video card:', error);
-    // 发生错误时移除加载状态
-    card.classList.remove('study-filter-loading');
+    console.error('Error checking multiple contents:', error);
+    return titles.map(() => true);
   }
 }
 
@@ -275,70 +450,6 @@ function addGlobalStyles() {
       }
     `;
     document.head.appendChild(style);
-  }
-}
-
-async function checkIfLearningContent(title) {
-  try {
-    // 检查缓存
-    const cached = titleCache.get(title);
-    if (cached && (Date.now() - cached.timestamp < CACHE_DURATION)) {
-      return cached.isLearning;
-    }
-
-    const settings = await chrome.storage.sync.get(['apiKey', 'endpoint', 'deploymentId', 'learningTopic', 'customTopic']);
-    
-    if (!settings.apiKey || !settings.endpoint || !settings.deploymentId) {
-      console.error('Azure OpenAI settings not configured');
-      return true;
-    }
-
-    const client = new AzureOpenAIClient(
-      settings.endpoint,
-      settings.apiKey
-    );
-
-    let topic = settings.learningTopic;
-    if (topic === 'custom' && settings.customTopic) {
-      topic = settings.customTopic;
-    } else if (topic === 'all') {
-      topic = '学习';
-    }
-
-    const messages = [
-      {
-        role: "system",
-        content: "你是一个视频内容分析助手。你的任务是判断视频是否与学习相关。只需回答'是'或'否'。"
-      },
-      {
-        role: "user",
-        content: `这个视频标题"${title}"是否与${topic}相关？请只回答是或否。`
-      }
-    ];
-
-    const result = await client.getChatCompletions(
-      settings.deploymentId, 
-      messages,
-      {
-        maxTokens: 10,
-        temperature: 0.1,
-      }
-    );
-
-    const answer = result.choices[0].message?.content?.trim().toLowerCase();
-    const isLearning = answer === '是' || answer === 'yes';
-
-    // 保存到缓存
-    titleCache.set(title, {
-      isLearning,
-      timestamp: Date.now()
-    });
-
-    return isLearning;
-
-  } catch (error) {
-    console.error('Error checking learning content:', error);
-    return true;
   }
 }
 
