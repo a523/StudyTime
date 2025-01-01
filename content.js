@@ -1,6 +1,8 @@
 // 存储 observer 实例以便需要时断开连接
 let observer = null;
 let isInitialized = false;
+let retryCount = 0;
+const MAX_RETRIES = 3;
 
 // 初始化函数
 async function initialize() {
@@ -9,11 +11,14 @@ async function initialize() {
   try {
     console.log('Initializing B站学习助手...');
     
-    // 断开旧的观察器
-    if (observer) {
-      observer.disconnect();
-      observer = null;
+    // 检查扩展是否有效
+    if (!chrome.runtime?.id) {
+      console.log('Extension context invalid, waiting for reconnection...');
+      return;
     }
+    
+    // 断开旧的观察器
+    cleanup();
 
     const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
     if (filterEnabled === undefined) {
@@ -36,11 +41,23 @@ async function initialize() {
     await processCurrentVideos();
     
     isInitialized = true;
+    retryCount = 0;
     
   } catch (error) {
     console.error('Error during initialization:', error);
-    isInitialized = false;
-    observer = null;
+    await handleInitError();
+  }
+}
+
+// 处理初始化错误
+async function handleInitError() {
+  cleanup();
+  if (retryCount < MAX_RETRIES) {
+    retryCount++;
+    console.log(`Retrying initialization (${retryCount}/${MAX_RETRIES})...`);
+    setTimeout(initialize, 1000 * retryCount);
+  } else {
+    console.error('Max retry attempts reached');
   }
 }
 
@@ -60,20 +77,36 @@ function debounce(func, wait) {
 // 处理 DOM 变化
 async function handleMutation(mutations) {
   try {
+    // 检查扩展是否有效
+    if (!chrome.runtime?.id) {
+      throw new Error('Extension context invalidated');
+    }
+
     const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
     if (!filterEnabled) return;
 
     await processCurrentVideos();
   } catch (error) {
     console.error('Error in mutation observer:', error);
-    cleanup();
+    if (error.message.includes('Extension context invalidated')) {
+      cleanup();
+      // 等待扩展重新加载
+      setTimeout(() => {
+        retryCount = 0;
+        initialize();
+      }, 1000);
+    }
   }
 }
 
 // 清理函数
 function cleanup() {
   if (observer) {
-    observer.disconnect();
+    try {
+      observer.disconnect();
+    } catch (error) {
+      console.error('Error disconnecting observer:', error);
+    }
     observer = null;
   }
   isInitialized = false;
@@ -83,11 +116,8 @@ function cleanup() {
 async function processCurrentVideos() {
   // 尝试不同的选择器来匹配B站的视频卡片
   const selectors = [
-    '.video-card',
+    // 新版 B 站首页视频卡片
     '.bili-video-card',
-    '.feed-card',
-    '[class*="video-card"]',
-    '[class*="bili-video-card"]'
   ];
 
   for (const selector of selectors) {
@@ -126,23 +156,38 @@ async function processVideoCard(card) {
 // 查找视频标题
 async function findVideoTitle(card) {
   const titleSelectors = [
-    '.title',
-    '[class*="title"]',
-    '[class*="Title"]',
-    'h3',
-    'a[title]'
+    // 新版 B 站首页视频卡片标题
+    '.bili-video-card__info--tit',
+    // 视频标题链接
+    '.bili-video-card__info--tit a',
+    // 标题属性
+    '[title]',
   ];
   
   for (const titleSelector of titleSelectors) {
     const titleElement = card.querySelector(titleSelector);
     if (titleElement) {
-      const title = titleElement.textContent || titleElement.getAttribute('title');
-      console.log('Found title:', title, 'using selector:', titleSelector);
-      return title;
+      // 优先使用 title 属性，因为它包含完整标题
+      const title = titleElement.getAttribute('title') || titleElement.textContent;
+      if (title) {
+        console.log('Found title:', title, 'using selector:', titleSelector);
+        return title.trim();
+      }
     }
   }
   
-  console.log('No title found for card:', card);
+  // 如果上面的选择器都没找到，尝试完整的选择器路径
+  const fullPathSelector = 'div.bili-video-card__info > div > h3.bili-video-card__info--tit';
+  const titleElement = card.querySelector(fullPathSelector);
+  if (titleElement) {
+    const title = titleElement.getAttribute('title') || titleElement.textContent;
+    if (title) {
+      console.log('Found title using full path:', title);
+      return title.trim();
+    }
+  }
+  
+//   console.log('No title found for card:', card);
   return null;
 }
 
@@ -196,7 +241,7 @@ async function checkIfLearningContent(title) {
     const settings = await chrome.storage.sync.get(['apiKey', 'learningTopic']);
     
     // DEBUG: 临时返回随机结果，避免频繁调用API
-    return Math.random() > 0.5;
+    return title.length > 25;
     
     /* 实际的API调用代码先注释掉
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
@@ -225,30 +270,61 @@ async function checkIfLearningContent(title) {
 
 // 监听来自 background script 的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.type === 'PAGE_LOADED') {
-    cleanup();
-    initialize();
+  try {
+    if (message.type === 'PAGE_LOADED') {
+      // 立即发送响应
+      sendResponse({ received: true });
+      // 然后执行初始化
+      retryCount = 0;
+      cleanup();
+      initialize();
+    }
+  } catch (error) {
+    console.error('Error handling message:', error);
   }
-  return true;
 });
 
 // 监听存储变化
 chrome.storage.onChanged.addListener((changes, namespace) => {
-  if (namespace === 'sync' && changes.filterEnabled) {
-    if (changes.filterEnabled.newValue) {
-      initialize();
-    } else {
-      cleanup();
+  try {
+    if (namespace === 'sync' && changes.filterEnabled) {
+      if (changes.filterEnabled.newValue) {
+        retryCount = 0;
+        initialize();
+      } else {
+        cleanup();
+      }
     }
+  } catch (error) {
+    console.error('Error handling storage change:', error);
   }
 });
 
+// 检查扩展上下文是否有效的函数
+function isExtensionContextValid() {
+  return Boolean(chrome.runtime?.id);
+}
+
 // 页面加载完成后初始化
 if (document.readyState === 'complete') {
-  initialize();
+  if (isExtensionContextValid()) {
+    initialize();
+  }
 } else {
-  window.addEventListener('load', initialize);
+  window.addEventListener('load', () => {
+    if (isExtensionContextValid()) {
+      initialize();
+    }
+  });
 }
 
 // 页面卸载时清理
-window.addEventListener('unload', cleanup); 
+window.addEventListener('unload', cleanup);
+
+// 定期检查扩展状态
+setInterval(() => {
+  if (!isInitialized && isExtensionContextValid()) {
+    retryCount = 0;
+    initialize();
+  }
+}, 5000); 
