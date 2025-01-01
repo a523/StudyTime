@@ -9,7 +9,6 @@ async function initialize() {
   if (isInitialized) return;
   
   try {
-    console.log('Initializing B站学习助手...');
     
     // 检查扩展是否有效
     if (!chrome.runtime?.id) {
@@ -170,41 +169,25 @@ async function findVideoTitle(card) {
       // 优先使用 title 属性，因为它包含完整标题
       const title = titleElement.getAttribute('title') || titleElement.textContent;
       if (title) {
-        console.log('Found title:', title, 'using selector:', titleSelector);
         return title.trim();
       }
     }
   }
   
-  // 如果上面的选择器都没找到，尝试完整的选择器路径
-  const fullPathSelector = 'div.bili-video-card__info > div > h3.bili-video-card__info--tit';
-  const titleElement = card.querySelector(fullPathSelector);
-  if (titleElement) {
-    const title = titleElement.getAttribute('title') || titleElement.textContent;
-    if (title) {
-      console.log('Found title using full path:', title);
-      return title.trim();
-    }
-  }
-  
-//   console.log('No title found for card:', card);
   return null;
 }
 
 // 应用模糊效果
 function applyBlurEffect(card, title) {
-  console.log('Applying blur to:', title);
   card.style.filter = 'blur(5px)';
   card.style.transition = 'filter 0.3s ease';
   
   const handleMouseEnter = () => {
     card.style.filter = 'none';
-    console.log('Mouse enter:', title);
   };
   
   const handleMouseLeave = () => {
     card.style.filter = 'blur(5px)';
-    console.log('Mouse leave:', title);
   };
   
   // 移除旧的事件监听器（如果存在）
