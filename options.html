@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <style>
+    body {
+      padding: 20px;
+    }
+    .setting-item {
+      margin: 15px 0;
+    }
+  </style>
+</head>
+<body>
+  <h2>学习内容设置</h2>
+  <div class="setting-item">
+    <label>学习主题：</label>
+    <select id="learningTopic">
+      <option value="all">所有学习内容</option>
+      <option value="programming">编程</option>
+      <option value="language">语言学习</option>
+      <option value="academic">学术内容</option>
+    </select>
+  </div>
+  <div class="setting-item">
+    <label>OpenAI API Key:</label>
+    <input type="password" id="apiKey">
+  </div>
+  <button id="saveSettings">保存设置</button>
+  <script src="options.js"></script>
+</body>
+</html> 

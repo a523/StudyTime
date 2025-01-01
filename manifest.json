@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "B站学习助手",
+  "version": "1.0",
+  "description": "过滤B站非学习相关内容，打造专注学习环境",
+  "permissions": [
+    "storage",
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://www.bilibili.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.bilibili.com/*"],
+      "js": ["content.js"]
+    }
+  ],
+  "options_page": "options.html"
+} 
