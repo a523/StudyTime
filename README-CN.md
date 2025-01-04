@@ -1,5 +1,7 @@
 # 学习时刻
 
+![image](docs/img-setting.png)
+
 [English Documentation](README.md)
 
 一个帮助你专注学习的 Chrome 扩展，通过智能识别和过滤 B站 视频内容，让你的学习更加高效。
