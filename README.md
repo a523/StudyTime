@@ -1,10 +1,10 @@
 # Study Time
 
-![image](docs/img-setting.png)
-
 [中文文档](README-CN.md)
 
 A Chrome extension that helps you stay focused on learning by intelligently identifying and filtering content on Bilibili.
+
+![image](docs/img-setting.png)
 
 ## Features
 
