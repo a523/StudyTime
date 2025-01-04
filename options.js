@@ -1,49 +1,102 @@
 document.addEventListener('DOMContentLoaded', async () => {
+  // 获取所有元素
   const endpointInput = document.getElementById('endpoint');
   const apiKeyInput = document.getElementById('apiKey');
   const deploymentIdInput = document.getElementById('deploymentId');
-  const topicSelect = document.getElementById('learningTopic');
-  const customTopicContainer = document.getElementById('customTopicContainer');
-  const customTopicInput = document.getElementById('customTopic');
+  const customTopicsInput = document.getElementById('customTopics');
   const saveButton = document.getElementById('saveSettings');
   const statusDiv = document.getElementById('status');
+  const selectAllCheckbox = document.getElementById('selectAll');
+  const topicCheckboxes = document.querySelectorAll('.topic-list input[type="checkbox"]');
+  const themeIndicator = document.getElementById('themeIndicator');
+
+  // 显示状态消息
+  function showStatus(message, type = 'success') {
+    statusDiv.textContent = message;
+    statusDiv.className = type;
+    statusDiv.style.display = 'block';
+    setTimeout(() => {
+      statusDiv.style.display = 'none';
+    }, 3000);
+  }
+
+  // 处理全选
+  selectAllCheckbox.addEventListener('change', () => {
+    topicCheckboxes.forEach(checkbox => {
+      checkbox.checked = selectAllCheckbox.checked;
+    });
+  });
+
+  // 处理单个选项变化
+  topicCheckboxes.forEach(checkbox => {
+    checkbox.addEventListener('change', () => {
+      const allChecked = Array.from(topicCheckboxes).every(cb => cb.checked);
+      selectAllCheckbox.checked = allChecked;
+    });
+  });
 
   // 加载保存的设置
   const settings = await chrome.storage.sync.get([
     'endpoint',
     'apiKey',
     'deploymentId',
-    'learningTopic',
-    'customTopic'
+    'selectedTopics',
+    'customTopics'
   ]);
 
+  // 填充表单
   if (settings.endpoint) endpointInput.value = settings.endpoint;
   if (settings.apiKey) apiKeyInput.value = settings.apiKey;
   if (settings.deploymentId) deploymentIdInput.value = settings.deploymentId;
-  if (settings.learningTopic) topicSelect.value = settings.learningTopic;
-  if (settings.customTopic) customTopicInput.value = settings.customTopic;
+  if (settings.customTopics) customTopicsInput.value = settings.customTopics.join(', ');
 
-  // 显示/隐藏自定义主题输入框
-  topicSelect.addEventListener('change', () => {
-    customTopicContainer.style.display = 
-      topicSelect.value === 'custom' ? 'block' : 'none';
-  });
+  // 设置选中的主题
+  if (settings.selectedTopics) {
+    settings.selectedTopics.forEach(topic => {
+      const checkbox = document.querySelector(`input[value="${topic}"]`);
+      if (checkbox) checkbox.checked = true;
+    });
+    // 更新全选状态
+    selectAllCheckbox.checked = Array.from(topicCheckboxes)
+      .every(checkbox => checkbox.checked);
+  } else {
+    // 默认全选
+    selectAllCheckbox.checked = true;
+    topicCheckboxes.forEach(checkbox => checkbox.checked = true);
+  }
 
-  // 初始化自定义主题输入框显示状态
-  customTopicContainer.style.display = 
-    topicSelect.value === 'custom' ? 'block' : 'none';
+  // 更新主题指示器
+  function updateThemeIndicator() {
+    const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    themeIndicator.textContent = isDark ? '深色模式' : '浅色模式';
+  }
+
+  // 初始更新
+  updateThemeIndicator();
+
+  // 监听系统主题变化
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', updateThemeIndicator);
 
   // 保存设置
   saveButton.addEventListener('click', async () => {
     const endpoint = endpointInput.value.trim();
     const apiKey = apiKeyInput.value.trim();
     const deploymentId = deploymentIdInput.value.trim();
-    const learningTopic = topicSelect.value;
-    const customTopic = customTopicInput.value.trim();
+    const selectedTopics = Array.from(topicCheckboxes)
+      .filter(checkbox => checkbox.checked)
+      .map(checkbox => checkbox.value);
+    const customTopics = customTopicsInput.value
+      .split(',')
+      .map(topic => topic.trim())
+      .filter(Boolean);
 
     if (!endpoint || !apiKey || !deploymentId) {
-      statusDiv.textContent = '请填写所有必要的 Azure OpenAI 设置';
-      statusDiv.style.color = 'red';
+      showStatus('请填写所有必要的 Azure OpenAI 设置', 'error');
+      return;
+    }
+
+    if (selectedTopics.length === 0) {
+      showStatus('请至少选择一个学习主题', 'error');
       return;
     }
 
@@ -52,18 +105,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         endpoint,
         apiKey,
         deploymentId,
-        learningTopic,
-        customTopic
+        selectedTopics,
+        customTopics
       });
       
-      statusDiv.textContent = '设置已保存！';
-      statusDiv.style.color = 'green';
-      setTimeout(() => {
-        statusDiv.textContent = '';
-      }, 2000);
+      showStatus('设置已保存！');
     } catch (error) {
-      statusDiv.textContent = '保存设置时出错：' + error.message;
-      statusDiv.style.color = 'red';
+      showStatus('保存设置失败：' + error.message, 'error');
     }
   });
 }); 

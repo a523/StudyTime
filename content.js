@@ -300,24 +300,25 @@ function buildAiMessages(topic, titlesToCheck) {
       content: `你是一个教育内容分析助手。请根据以下规则分析视频标题：
 
                分析规则：
-               1. 判断标题是否与${topic}主题相关
-               2. 每个标题回答"是"或"否"
-               3. 答案用逗号分隔
-               4. 必须回答所有${titlesToCheck.length}个标题
-               5. 仅输出答案，无需解释
+               1. 判断标题是否与以下主题相关：【${topic}】
+               2. 只要标题与其中任何一个主题相关，就回答"是"
+               3. 如果与所有主题都无关，则回答"否"
+               4. 答案用逗号分隔
+               5. 必须回答所有${titlesToCheck.length}个标题
+               6. 仅输出答案，无需解释
                
                示例格式：
                输入：
-               1. 标题示例1
-               2. 标题示例2
-               3. 标题示例3
+               1. Python编程入门教程
+               2. 猫咪日常生活
+               3. 英语口语练习
                
-               输出：
+               输出（假设主题是"编程或语言学习"）：
                是,否,是`
     },
     {
       role: "user",
-      content: `请分析以下${titlesToCheck.length}个标题是否与${topic}主题相关：\n${numberedTitles}`
+      content: `请分析以下${titlesToCheck.length}个标题是否与这些主题相关：【${topic}】\n${numberedTitles}`
     }
   ];
 }
@@ -345,7 +346,7 @@ async function checkMultipleContents(titles) {
       return results.map(item => item.result);
     }
 
-    const settings = await chrome.storage.sync.get(['apiKey', 'endpoint', 'deploymentId', 'learningTopic', 'customTopic']);
+    const settings = await chrome.storage.sync.get(['apiKey', 'endpoint', 'deploymentId', 'selectedTopics', 'customTopics']);
     if (!settings.apiKey || !settings.endpoint || !settings.deploymentId) {
       return titles.map(() => true);
     }
@@ -353,22 +354,45 @@ async function checkMultipleContents(titles) {
     const client = new AzureOpenAIClient(settings.endpoint, settings.apiKey);
     
     // 确定学习主题
-    let topic = '学习';
-    if (settings.learningTopic === 'custom') {
-      topic = settings.customTopic;
-    } else if (settings.learningTopic !== 'all') {
-      topic = settings.learningTopic;
+    let topics = [];
+    if (settings.selectedTopics?.includes('all')) {
+      topics = ['学习'];
+    } else {
+      if (settings.selectedTopics?.includes('custom') && settings.customTopics?.length > 0) {
+        topics.push(...settings.customTopics);
+      }
+      const topicMap = {
+        'programming': '编程',
+        'language': '语言学习',
+        'academic': '学术',
+        'technology': '科技',
+        'science': '科学',
+        'math': '数学'
+      };
+      topics.push(...(settings.selectedTopics || [])
+        .filter(topic => topic !== 'custom' && topic !== 'all')
+        .map(topic => topicMap[topic])
+        .filter(Boolean));
     }
-    
+
+    // 添加主题验证
+    if (topics.length === 0) {
+      console.warn('No topics selected, defaulting to all learning content');
+      topics = ['学习'];
+    }
+
+    const topic = topics.join('或');
+    console.log('Using topics:', topics, 'Combined topic:', topic);
+
     const messages = buildAiMessages(topic, titlesToCheck);
-    // console.log('Sending messages to AI:', messages);
+    console.log('Sending messages to AI:', messages);
     const apiResults = await retryWithTimeout(async () => {
       const response = await client.getChatCompletions(settings.deploymentId, messages, {
         maxTokens: Math.max(CONFIG.MAX_TOKENS, titlesToCheck.length * 5),
         temperature: 0
       });
       const ans = processApiResponse(response, titlesToCheck);
-      // console.log('AI response:', ans);
+      console.log('AI response:', ans);
       return ans;
     });
 

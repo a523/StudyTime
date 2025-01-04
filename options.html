@@ -2,56 +2,269 @@
 <html>
 <head>
   <meta charset="UTF-8">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/dark.css" media="(prefers-color-scheme: dark)">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/light.css" media="(prefers-color-scheme: light)">
   <style>
     body {
+      max-width: 800px;
+      margin: 0 auto;
       padding: 20px;
     }
-    .setting-item {
+
+    /* 深色模式变量 */
+    :root {
+      color-scheme: light dark;
+      --bg-primary: #f8f9fa;
+      --border-color: #dee2e6;
+      --text-primary: #212529;
+      --success-bg: #d4edda;
+      --success-text: #155724;
+      --error-bg: #f8d7da;
+      --error-text: #721c24;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #2b2b2b;
+        --border-color: #3d4246;
+        --text-primary: #e0e0e0;
+        --success-bg: #1e4620;
+        --success-text: #a3cfab;
+        --error-bg: #442726;
+        --error-text: #f1aeb5;
+      }
+    }
+
+    .setting-group {
+      background: var(--bg-primary);
+      border-radius: 8px;
+      padding: 20px;
+      margin: 20px 0;
+      border: 1px solid var(--border-color);
+    }
+
+    .topic-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 10px;
       margin: 15px 0;
     }
-    .setting-item label {
-      display: block;
-      margin-bottom: 5px;
+
+    .topic-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
     }
-    .setting-item input, .setting-item select {
+
+    .topic-item input[type="checkbox"] {
+      margin: 0;
+    }
+
+    .custom-topics {
+      margin-top: 15px;
+    }
+
+    #status {
+      padding: 10px;
+      border-radius: 4px;
+      margin-top: 15px;
+      text-align: center;
+      display: none;
+    }
+
+    .success {
+      background-color: var(--success-bg);
+      color: var(--success-text);
+    }
+
+    .error {
+      background-color: var(--error-bg);
+      color: var(--error-text);
+    }
+
+    button {
       width: 100%;
-      padding: 5px;
+      margin-top: 20px;
+    }
+
+    input[type="text"],
+    input[type="password"],
+    textarea {
+      width: 100%;
+      background: var(--bg-primary);
+      border: 1px solid var(--border-color);
+      color: var(--text-primary);
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border-color);
+      margin: 15px 0;
+    }
+
+    /* 改进复选框样式 */
+    input[type="checkbox"] {
+      accent-color: currentColor;
+    }
+
+    /* 标题样式 */
+    h1, h3 {
+      color: var(--text-primary);
+    }
+
+    /* 标签样式 */
+    label {
+      color: var(--text-primary);
+    }
+
+    /* 模式指示器样式 */
+    .theme-indicator {
+      position: fixed;
+      top: 20px;
+      right: 20px;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font-size: 14px;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+      opacity: 0.8;
+    }
+
+    /* 改进深色模式的输入框样式 */
+    @media (prefers-color-scheme: dark) {
+      input[type="text"],
+      input[type="password"],
+      textarea {
+        background: #363636;
+        border-color: #4a4a4a;
+      }
+
+      input[type="text"]:focus,
+      input[type="password"]:focus,
+      textarea:focus {
+        border-color: #5c7080;
+        box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.1);
+      }
+
+      .setting-group {
+        background: #323232;
+      }
+
+      button {
+        background: #4a4a4a;
+        border-color: #5c5c5c;
+      }
+
+      button:hover {
+        background: #5c5c5c;
+      }
+    }
+
+    /* 改进亮色模式的样式 */
+    @media (prefers-color-scheme: light) {
+      input[type="text"],
+      input[type="password"],
+      textarea {
+        background: #ffffff;
+        border-color: #ced4da;
+      }
+
+      input[type="text"]:focus,
+      input[type="password"]:focus,
+      textarea:focus {
+        border-color: #86b7fe;
+        box-shadow: 0 0 0 2px rgba(13, 110, 253, 0.1);
+      }
+
+      .setting-group {
+        background: #ffffff;
+      }
+
+      button {
+        background: #0d6efd;
+        border: none;
+      }
+
+      button:hover {
+        background: #0b5ed7;
+      }
+    }
+
+    /* 通用悬停效果 */
+    .setting-group:hover {
+      border-color: var(--text-primary);
+      transition: border-color 0.2s ease;
+    }
+
+    button {
+      transition: all 0.2s ease;
     }
   </style>
 </head>
 <body>
-  <h2>学习内容设置</h2>
-  <div class="setting-item">
-    <label>Azure OpenAI Endpoint:</label>
-    <input type="text" id="endpoint" placeholder="https://your-resource.openai.azure.com/">
+  <div class="theme-indicator" id="themeIndicator"></div>
+
+  <h1>学习内容设置</h1>
+  
+  <div class="setting-group">
+    <h3>Azure OpenAI 配置</h3>
+    <div>
+      <label for="endpoint">Endpoint:</label>
+      <input type="text" id="endpoint" placeholder="https://your-resource.openai.azure.com/">
+    </div>
+    <div>
+      <label for="apiKey">API Key:</label>
+      <input type="password" id="apiKey">
+    </div>
+    <div>
+      <label for="deploymentId">Deployment ID:</label>
+      <input type="text" id="deploymentId" placeholder="gpt-35-turbo">
+    </div>
   </div>
-  <div class="setting-item">
-    <label>Azure OpenAI API Key:</label>
-    <input type="password" id="apiKey">
+
+  <div class="setting-group">
+    <h3>学习主题</h3>
+    <div class="topic-item">
+      <input type="checkbox" id="selectAll">
+      <label for="selectAll">全选</label>
+    </div>
+    <div class="divider"></div>
+    <div class="topic-list">
+      <div class="topic-item">
+        <input type="checkbox" id="topic-programming" value="programming">
+        <label for="topic-programming">编程</label>
+      </div>
+      <div class="topic-item">
+        <input type="checkbox" id="topic-language" value="language">
+        <label for="topic-language">语言学习</label>
+      </div>
+      <div class="topic-item">
+        <input type="checkbox" id="topic-academic" value="academic">
+        <label for="topic-academic">学术内容</label>
+      </div>
+      <div class="topic-item">
+        <input type="checkbox" id="topic-technology" value="technology">
+        <label for="topic-technology">科技</label>
+      </div>
+      <div class="topic-item">
+        <input type="checkbox" id="topic-science" value="science">
+        <label for="topic-science">科学</label>
+      </div>
+      <div class="topic-item">
+        <input type="checkbox" id="topic-math" value="math">
+        <label for="topic-math">数学</label>
+      </div>
+    </div>
+    <div class="custom-topics">
+      <label for="customTopics">自定义主题：</label>
+      <textarea id="customTopics" rows="2" placeholder="请输入自定义主题，多个主题用逗号分隔"></textarea>
+    </div>
   </div>
-  <div class="setting-item">
-    <label>Deployment ID:</label>
-    <input type="text" id="deploymentId" placeholder="gpt-35-turbo">
-  </div>
-  <div class="setting-item">
-    <label>学习主题：</label>
-    <select id="learningTopic">
-      <option value="all">所有学习内容</option>
-      <option value="programming">编程</option>
-      <option value="language">语言学习</option>
-      <option value="academic">学术内容</option>
-      <option value="technology">科技</option>
-      <option value="science">科学</option>
-      <option value="math">数学</option>
-      <option value="custom">自定义</option>
-    </select>
-  </div>
-  <div class="setting-item" id="customTopicContainer" style="display: none;">
-    <label>自定义主题：</label>
-    <input type="text" id="customTopic" placeholder="请输入学习主题">
-  </div>
+
   <button id="saveSettings">保存设置</button>
-  <div id="status" style="margin-top: 10px;"></div>
+  <div id="status"></div>
+
   <script src="options.js"></script>
 </body>
 </html> 
