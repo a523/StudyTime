@@ -85,10 +85,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const selectedTopics = Array.from(topicCheckboxes)
       .filter(checkbox => checkbox.checked)
       .map(checkbox => checkbox.value);
-    const customTopics = customTopicsInput.value
+    const customTopicsText = customTopicsInput.value.trim();
+    const customTopics = customTopicsText
       .split(',')
       .map(topic => topic.trim())
       .filter(Boolean);
+
+    // 如果有自定义主题，确保 'custom' 在 selectedTopics 中
+    if (customTopics.length > 0 && !selectedTopics.includes('custom')) {
+      selectedTopics.push('custom');
+    }
 
     if (!endpoint || !apiKey || !deploymentId) {
       showStatus('请填写所有必要的 Azure OpenAI 设置', 'error');

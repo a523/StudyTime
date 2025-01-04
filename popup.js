@@ -6,7 +6,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 建立与 content script 的连接
   try {
-    const port = chrome.runtime.connect({ name: 'popup' });
+    chrome.runtime.connect({ name: 'popup' });
     console.log('Connected to content script');
   } catch (error) {
     console.error('Failed to connect to content script:', error);
@@ -27,7 +27,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 保存设置
   checkbox.addEventListener('change', () => {
     const newValue = checkbox.checked;
-    console.log('Saving new value:', newValue);
     chrome.storage.sync.set({ filterEnabled: newValue });
   });
 

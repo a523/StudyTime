@@ -52,13 +52,18 @@ async function initialize() {
       throw new Error('Extension failed to initialize after multiple attempts');
     }
 
-    await loadCache();
-    
     // 检查扩展是否有效
     if (!chrome.runtime?.id) {
       console.log('Extension context invalid, waiting for reconnection...');
+      // 添加重试逻辑
+      setTimeout(() => {
+        retryCount = 0;
+        initialize();
+      }, 2000);
       return;
     }
+
+    await loadCache();
     
     // 断开旧的观察器
     cleanup();
@@ -85,7 +90,15 @@ async function initialize() {
     
   } catch (error) {
     console.error('Error during initialization:', error);
-    await handleInitError();
+    if (error.message.includes('Extension context invalidated')) {
+      // 如果是扩展上下文失效，等待一段时间后重试
+      setTimeout(() => {
+        retryCount = 0;
+        initialize();
+      }, 2000);
+    } else {
+      await handleInitError();
+    }
   }
 }
 
@@ -310,7 +323,7 @@ function buildAiMessages(topic, titlesToCheck) {
                2. 猫咪日常生活
                3. 英语口语练习
                
-               输出（假设主题是"编程或语言学习"）：
+               输出（假设主题是"【编程、语言学习】"）：
                是,否,是`
     },
     {
@@ -353,11 +366,7 @@ async function checkMultipleContents(titles) {
     // 确定学习主题
     let topics = [];
     if (settings.selectedTopics?.includes('all')) {
-      topics = ['学习'];
-    } else {
-      if (settings.selectedTopics?.includes('custom') && settings.customTopics?.length > 0) {
-        topics.push(...settings.customTopics);
-      }
+      // 如果选择了全选，包含所有预定义主题和自定义主题
       const topicMap = {
         'programming': '编程',
         'language': '语言学习',
@@ -366,10 +375,35 @@ async function checkMultipleContents(titles) {
         'science': '科学',
         'math': '数学'
       };
+      
+      // 添加所有预定义主题
+      topics.push(...Object.values(topicMap));
+      
+      // 添加自定义主题（如果有）
+      if (settings.customTopics?.length > 0) {
+        topics.push(...settings.customTopics.filter(Boolean));
+      }
+    } else {
+      // 如果是单独选择
+      const topicMap = {
+        'programming': '编程',
+        'language': '语言学习',
+        'academic': '学术',
+        'technology': '科技',
+        'science': '科学',
+        'math': '数学'
+      };
+      
+      // 先添加预定义主题
       topics.push(...(settings.selectedTopics || [])
         .filter(topic => topic !== 'custom' && topic !== 'all')
         .map(topic => topicMap[topic])
         .filter(Boolean));
+        
+      // 再添加自定义主题
+      if (settings.selectedTopics?.includes('custom') && settings.customTopics?.length > 0) {
+        topics.push(...settings.customTopics.filter(Boolean));
+      }
     }
 
     // 添加主题验证
@@ -378,8 +412,7 @@ async function checkMultipleContents(titles) {
       topics = ['学习'];
     }
 
-    const topic = topics.join('或');
-    console.log('Using topics:', topics, 'Combined topic:', topic);
+    const topic = topics.join('、');
 
     const messages = buildAiMessages(topic, titlesToCheck);
     console.log('Sending messages to AI:', messages);
@@ -389,7 +422,6 @@ async function checkMultipleContents(titles) {
         temperature: 0
       });
       const ans = processApiResponse(response, titlesToCheck);
-      console.log('AI response:', ans);
       return ans;
     });
 
@@ -581,5 +613,28 @@ async function loadCache() {
   } catch (error) {
     console.warn('Failed to load cache:', error);
     // 不抛出错误，让程序继续运行
+  }
+}
+
+// 添加错误处理函数
+function handleError(error) {
+  if (error.message.includes('Extension context invalidated')) {
+    cleanup();
+    // 等待扩展重新加载
+    setTimeout(() => {
+      retryCount = 0;
+      initialize();
+    }, 2000);
+    return true;
+  }
+  return false;
+}
+
+// 修改所有使用 chrome.runtime 的地方，添加错误处理
+try {
+  // chrome.runtime 相关操作
+} catch (error) {
+  if (!handleError(error)) {
+    console.error('Unhandled error:', error);
   }
 } 
