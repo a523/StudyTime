@@ -24,12 +24,35 @@ const CONFIG = {
   RESPONSE_TIMEOUT: 30000          // 响应超时时间（毫秒）
 };
 
+// 添加连接状态检查函数
+async function waitForExtensionReady(maxAttempts = 5, interval = 1000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    try {
+      if (chrome.runtime?.id) {
+        // 尝试进行一个简单的存储操作来验证连接
+        await chrome.storage.local.get('test');
+        return true;
+      }
+    } catch (error) {
+      console.warn(`Attempt ${i + 1}: Extension not ready yet`);
+    }
+    await new Promise(resolve => setTimeout(resolve, interval));
+  }
+  return false;
+}
+
 // 初始化函数
 async function initialize() {
   if (isInitialized) return;
   
   try {
-    await loadCache(); // 加载缓存
+    // 等待扩展就绪
+    const isReady = await waitForExtensionReady();
+    if (!isReady) {
+      throw new Error('Extension failed to initialize after multiple attempts');
+    }
+
+    await loadCache();
     
     // 检查扩展是否有效
     if (!chrome.runtime?.id) {
@@ -75,9 +98,16 @@ async function handleInitError() {
   if (retryCount < MAX_RETRIES) {
     retryCount++;
     console.log(`Retrying initialization (${retryCount}/${MAX_RETRIES})...`);
-    setTimeout(initialize, 1000 * retryCount);
+    // 增加重试间隔时间
+    await new Promise(resolve => setTimeout(resolve, 2000 * retryCount));
+    await initialize();
   } else {
     console.error('Max retry attempts reached');
+    // 添加自动重新加载逻辑
+    setTimeout(() => {
+      retryCount = 0;
+      initialize();
+    }, 5000);
   }
 }
 
@@ -157,13 +187,12 @@ async function processCurrentVideos() {
         // 如果没有需要处理的卡片，跳过
         if (cardsToProcess.length === 0) continue;
 
-        // 先为所有未处理的卡片添加加载状态和模糊效果
+        // 只添加加载状态，模糊效果已经通过 CSS 添加
         cardsToProcess.forEach(card => {
           try {
             card.classList.add('study-filter-loading');
-            card.classList.add('study-filter-blur');
           } catch (error) {
-            console.warn('Error adding initial classes:', error);
+            console.warn('Error adding loading class:', error);
           }
         });
 
@@ -268,29 +297,27 @@ function buildAiMessages(topic, titlesToCheck) {
   return [
     {
       role: "system",
-      content: `你是一个视频内容分析助手。你需要判断每个视频标题是否与${topic}相关。
+      content: `你是一个教育内容分析助手。请根据以下规则分析视频标题：
 
-               重要规则：
-               1. 你必须为每个标题回答，不能遗漏
-               2. 每个回答必须是"是"或"否"
-               3. 所有回答用逗号分隔
-               4. 回答数量必须等于标题数量（${titlesToCheck.length}个）
-               5. 只输出答案，不要有任何解释或其他文字
+               分析规则：
+               1. 判断标题是否与${topic}主题相关
+               2. 每个标题回答"是"或"否"
+               3. 答案用逗号分隔
+               4. 必须回答所有${titlesToCheck.length}个标题
+               5. 仅输出答案，无需解释
                
-               示例（3个标题）：
+               示例格式：
                输入：
-               标题1
-               标题2
-               标题3
+               1. 标题示例1
+               2. 标题示例2
+               3. 标题示例3
                
-               正确输出格式：
-               是,否,是
-               
-               当前需要判断 ${titlesToCheck.length} 个标题。`
+               输出：
+               是,否,是`
     },
     {
       role: "user",
-      content: `请判断以下${titlesToCheck.length}个视频标题是否与${topic}相关：\n${numberedTitles}`
+      content: `请分析以下${titlesToCheck.length}个标题是否与${topic}主题相关：\n${numberedTitles}`
     }
   ];
 }
@@ -334,14 +361,14 @@ async function checkMultipleContents(titles) {
     }
     
     const messages = buildAiMessages(topic, titlesToCheck);
-    console.log('Sending messages to AI:', messages);
+    // console.log('Sending messages to AI:', messages);
     const apiResults = await retryWithTimeout(async () => {
       const response = await client.getChatCompletions(settings.deploymentId, messages, {
         maxTokens: Math.max(CONFIG.MAX_TOKENS, titlesToCheck.length * 5),
         temperature: 0
       });
       const ans = processApiResponse(response, titlesToCheck);
-      console.log('AI response:', ans);
+      // console.log('AI response:', ans);
       return ans;
     });
 
@@ -450,14 +477,12 @@ function addGlobalStyles() {
     const style = document.createElement('style');
     style.id = 'bilibili-study-filter-style';
     style.textContent = `
-      .video-card,
-      .bili-video-card,
-      .feed-card,
-      [class*="video-card"],
-      [class*="bili-video-card"] {
+      /* 默认所有视频卡片都模糊 */
+      .bili-video-card:not([data-processed="true"]) {
+        filter: blur(5px);
+        position: relative;
         will-change: filter;
         transform: translateZ(0);
-        position: relative;
       }
 
       .study-filter-loading {
@@ -489,7 +514,7 @@ function addGlobalStyles() {
       }
 
       .study-filter-blur {
-        filter: blur(5px);
+        filter: blur(5px) !important;
         transition: filter 0.3s ease;
       }
     `;
@@ -571,13 +596,21 @@ window.addEventListener('beforeunload', () => {
 
 // 在初始化时加载缓存
 async function loadCache() {
-  const data = await chrome.storage.local.get('titleCache');
-  if (data.titleCache) {
-    data.titleCache.forEach(item => {
-      titleCache.set(item.title, {
-        isLearning: item.isLearning,
-        timestamp: item.timestamp
+  try {
+    if (!chrome.runtime?.id) {
+      throw new Error('Extension context invalidated');
+    }
+    const data = await chrome.storage.local.get('titleCache');
+    if (data.titleCache) {
+      data.titleCache.forEach(item => {
+        titleCache.set(item.title, {
+          isLearning: item.isLearning,
+          timestamp: item.timestamp
+        });
       });
-    });
+    }
+  } catch (error) {
+    console.warn('Failed to load cache:', error);
+    // 不抛出错误，让程序继续运行
   }
 } 
