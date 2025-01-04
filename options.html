@@ -2,8 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/dark.css" media="(prefers-color-scheme: dark)">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/light.css" media="(prefers-color-scheme: light)">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/water.css@2/out/water.css">
   <style>
     body {
       max-width: 800px;
@@ -14,13 +13,16 @@
     /* 深色模式变量 */
     :root {
       color-scheme: light dark;
-      --bg-primary: #f8f9fa;
-      --border-color: #dee2e6;
+      /* 浅色模式默认值 */
+      --bg-primary: #ffffff;
+      --border-color: #ced4da;
       --text-primary: #212529;
       --success-bg: #d4edda;
       --success-text: #155724;
       --error-bg: #f8d7da;
       --error-text: #721c24;
+      --button-bg: #0d6efd;
+      --button-hover: #0b5ed7;
     }
 
     @media (prefers-color-scheme: dark) {
@@ -32,6 +34,8 @@
         --success-text: #a3cfab;
         --error-bg: #442726;
         --error-text: #f1aeb5;
+        --button-bg: #4a4a4a;
+        --button-hover: #5c5c5c;
       }
     }
 
@@ -85,6 +89,14 @@
     button {
       width: 100%;
       margin-top: 20px;
+      background: var(--button-bg);
+      color: white;
+      border: none;
+      transition: all 0.2s ease;
+    }
+
+    button:hover {
+      background: var(--button-hover);
     }
 
     input[type="text"],

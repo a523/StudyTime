@@ -77,9 +77,6 @@ async function initialize() {
       subtree: true
     });
 
-    // 添加全局样式
-    addGlobalStyles();
-
     // 立即处理当前页面上的视频
     await processCurrentVideos();
     
@@ -492,58 +489,6 @@ function applyBlurEffect(card, title) {
   // 添加新的事件监听器
   card.addEventListener('mouseenter', handleMouseEnter);
   card.addEventListener('mouseleave', handleMouseLeave);
-}
-
-// 添加全局样式
-function addGlobalStyles() {
-  const existingStyle = document.getElementById('bilibili-study-filter-style');
-  if (!existingStyle) {
-    const style = document.createElement('style');
-    style.id = 'bilibili-study-filter-style';
-    style.textContent = `
-      /* 默认所有视频卡片都模糊 */
-      .bili-video-card:not([data-processed="true"]) {
-        filter: blur(5px);
-        position: relative;
-        will-change: filter;
-        transform: translateZ(0);
-      }
-
-      .study-filter-loading {
-        position: relative;
-      }
-
-      .study-filter-loading::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(255, 255, 255, 0.9);
-        z-index: 1;
-      }
-
-      .study-filter-loading::after {
-        content: '分析中...';
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        z-index: 2;
-        background: white;
-        padding: 5px 10px;
-        border-radius: 4px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-      }
-
-      .study-filter-blur {
-        filter: blur(5px) !important;
-        transition: filter 0.3s ease;
-      }
-    `;
-    document.head.appendChild(style);
-  }
 }
 
 // 监听来自 background script 的消息
