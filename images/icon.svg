@@ -1,4 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
 <svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
-  <rect width="128" height="128" fill="#00A1D6"/>
-  <text x="64" y="64" font-size="80" font-family="Arial" fill="white" text-anchor="middle" dominant-baseline="central">学</text>
+  <!-- 背景圆形 -->
+  <circle cx="64" cy="64" r="60" fill="#4CAF50"/>
+  
+  <!-- 书本形状 -->
+  <path d="M40 38
+           L40 90
+           Q40 94 44 94
+           L84 94
+           Q88 94 88 90
+           L88 38
+           Q88 34 84 34
+           L44 34
+           Q40 34 40 38
+           Z" 
+        fill="white"/>
+  
+  <!-- 书页纹理 -->
+  <path d="M44 42
+           L84 42
+           M44 50
+           L84 50
+           M44 58
+           L84 58
+           M44 66
+           L84 66
+           M44 74
+           L84 74
+           M44 82
+           L84 82" 
+        stroke="#4CAF50"
+        stroke-width="2"
+        stroke-linecap="round"/>
+  
+  <!-- 时钟指针 -->
+  <g transform="translate(64 64)">
+    <line x1="0" y1="0" x2="0" y2="-25" 
+          stroke="#4CAF50" 
+          stroke-width="4" 
+          stroke-linecap="round"/>
+    <line x1="0" y1="0" x2="15" y2="0" 
+          stroke="#4CAF50" 
+          stroke-width="4" 
+          stroke-linecap="round"/>
+  </g>
 </svg> 

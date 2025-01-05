@@ -24,6 +24,104 @@ const CONFIG = {
   RESPONSE_TIMEOUT: 30000          // 响应超时时间（毫秒）
 };
 
+// 初始化 AI 客户端
+let aiClient = null;
+
+// 从存储中获取设置并初始化客户端
+async function initializeAIClient() {
+  try {
+    const settings = await chrome.storage.sync.get([
+      'modelType',
+      'azureEndpoint',
+      'azureApiKey',
+      'azureDeploymentId',
+      'doubaiEndpoint',
+      'doubaiApiKey',
+      'doubaiModel'
+    ]);
+
+    // 检查是否有有效的设置
+    if (!settings.modelType) {
+      console.warn('未选择 AI 模型类型');
+      return null;
+    }
+
+    if (settings.modelType === 'azure') {
+      if (!settings.azureEndpoint || !settings.azureApiKey || !settings.azureDeploymentId) {
+        console.warn('Azure OpenAI 设置不完整');
+        return null;
+      }
+      aiClient = AIClientFactory.createClient('azure', {
+        endpoint: settings.azureEndpoint,
+        apiKey: settings.azureApiKey,
+        deploymentId: settings.azureDeploymentId
+      });
+    } else if (settings.modelType === 'doubai') {
+      if (!settings.doubaiEndpoint || !settings.doubaiApiKey || !settings.doubaiModel) {
+        console.warn('豆包大模型设置不完整');
+        return null;
+      }
+      aiClient = AIClientFactory.createClient('doubai', {
+        endpoint: settings.doubaiEndpoint,
+        apiKey: settings.doubaiApiKey,
+        model: settings.doubaiModel
+      });
+    } else {
+      console.warn('不支持的 AI 模型类型:', settings.modelType);
+      return null;
+    }
+
+    return aiClient;
+  } catch (error) {
+    console.error('初始化 AI 客户端时出错:', error);
+    return null;
+  }
+}
+
+// 监听存储变化
+chrome.storage.onChanged.addListener((changes, namespace) => {
+  if (namespace === 'sync' && (
+    changes.modelType ||
+    changes.azureEndpoint ||
+    changes.azureApiKey ||
+    changes.azureDeploymentId ||
+    changes.doubaiEndpoint ||
+    changes.doubaiApiKey ||
+    changes.doubaiModel
+  )) {
+    initializeAIClient();
+  }
+});
+
+// 在页面加载时初始化客户端
+initializeAIClient();
+
+// 使用 AI 客户端处理内容
+async function processContent(content) {
+  if (!aiClient) {
+    console.warn('AI 客户端未初始化，跳过内容处理');
+    return null;
+  }
+
+  try {
+    const response = await aiClient.getChatCompletions([
+      {
+        role: "system",
+        content: "你是一个专注于学习内容优化的 AI 助手。请帮助分析和优化用户提供的学习内容。"
+      },
+      {
+        role: "user",
+        content: content
+      }
+    ]);
+
+    return response;
+  } catch (error) {
+    console.error('处理内容时出错:', error);
+    return null;
+  }
+}
+
 // 添加连接状态检查函数
 async function waitForExtensionReady(maxAttempts = 5, interval = 1000) {
   for (let i = 0; i < maxAttempts; i++) {
@@ -336,6 +434,11 @@ function buildAiMessages(topic, titlesToCheck) {
 // 主函数
 async function checkMultipleContents(titles) {
   try {
+    if (!aiClient) {
+      console.warn('AI 客户端未初始化，返回默认结果');
+      return titles.map(() => true);
+    }
+
     const validTitles = titles.map(title => 
       typeof title === 'string' ? title.slice(0, CONFIG.MAX_TITLE_LENGTH) : ''
     ).filter(Boolean);
@@ -356,12 +459,7 @@ async function checkMultipleContents(titles) {
       return results.map(item => item.result);
     }
 
-    const settings = await chrome.storage.sync.get(['apiKey', 'endpoint', 'deploymentId', 'selectedTopics', 'customTopics']);
-    if (!settings.apiKey || !settings.endpoint || !settings.deploymentId) {
-      return titles.map(() => true);
-    }
-
-    const client = new AzureOpenAIClient(settings.endpoint, settings.apiKey);
+    const settings = await chrome.storage.sync.get(['selectedTopics', 'customTopics']);
     
     // 确定学习主题
     let topics = [];
@@ -408,16 +506,16 @@ async function checkMultipleContents(titles) {
 
     // 添加主题验证
     if (topics.length === 0) {
-      console.warn('No topics selected, defaulting to all learning content');
+      console.warn('未选择任何主题，默认使用"学习"作为主题');
       topics = ['学习'];
     }
 
     const topic = topics.join('、');
 
     const messages = buildAiMessages(topic, titlesToCheck);
-    console.log('Sending messages to AI:', messages);
+    console.log('发送消息到 AI:', messages);
     const apiResults = await retryWithTimeout(async () => {
-      const response = await client.getChatCompletions(settings.deploymentId, messages, {
+      const response = await aiClient.getChatCompletions(messages, {
         maxTokens: Math.max(CONFIG.MAX_TOKENS, titlesToCheck.length * 5),
         temperature: 0
       });
@@ -435,7 +533,7 @@ async function checkMultipleContents(titles) {
     return results.map(item => item.fromCache ? item.result : apiResults[resultIndex++]);
 
   } catch (error) {
-    console.error('Error checking multiple contents:', error);
+    console.error('检查多个内容时出错:', error);
     return titles.map(() => true);
   }
 }

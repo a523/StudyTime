@@ -1,29 +1,45 @@
 {
   "manifest_version": 3,
-  "name": "B站学习助手",
+  "name": "学习时刻",
   "version": "1.0",
+  "description": "智能学习内容过滤和优化工具",
   "permissions": [
     "storage",
-    "tabs"
+    "activeTab",
+    "scripting"
   ],
-  "content_scripts": [
-    {
-      "matches": ["*://*.bilibili.com/*"],
-      "js": ["azure-openai.js", "content.js"],
-      "css": ["content.css"]
+  "host_permissions": [
+    "https://*.openai.azure.com/*",
+    "https://*.volces.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "images/icon16.png",
+      "48": "images/icon48.png",
+      "128": "images/icon128.png"
     }
-  ],
+  },
+  "icons": {
+    "16": "images/icon16.png",
+    "48": "images/icon48.png",
+    "128": "images/icon128.png"
+  },
+  "options_page": "options.html",
   "background": {
     "service_worker": "background.js"
   },
-  "options_page": "options.html",
-  "web_accessible_resources": [
+  "content_scripts": [
     {
-      "resources": ["*.css", "*.js"],
-      "matches": ["<all_urls>"]
+      "matches": ["<all_urls>"],
+      "css": ["content.css"],
+      "js": [
+        "models/base-client.js",
+        "models/azure-openai-client.js",
+        "models/doubai-client.js",
+        "models/ai-client-factory.js",
+        "content.js"
+      ]
     }
-  ],
-  "content_security_policy": {
-    "extension_pages": "script-src 'self'; object-src 'self'"
-  }
+  ]
 } 

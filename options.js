@@ -1,8 +1,19 @@
 document.addEventListener('DOMContentLoaded', async () => {
   // 获取所有元素
-  const endpointInput = document.getElementById('endpoint');
-  const apiKeyInput = document.getElementById('apiKey');
-  const deploymentIdInput = document.getElementById('deploymentId');
+  const modelTypeSelect = document.getElementById('modelType');
+  const azureSettings = document.getElementById('azureSettings');
+  const doubaiSettings = document.getElementById('doubaiSettings');
+  
+  // Azure OpenAI 元素
+  const azureEndpointInput = document.getElementById('azureEndpoint');
+  const azureApiKeyInput = document.getElementById('azureApiKey');
+  const azureDeploymentIdInput = document.getElementById('azureDeploymentId');
+  
+  // 豆包大模型元素
+  const doubaiEndpointInput = document.getElementById('doubaiEndpoint');
+  const doubaiApiKeyInput = document.getElementById('doubaiApiKey');
+  const doubaiModelInput = document.getElementById('doubaiModel');
+  
   const customTopicsInput = document.getElementById('customTopics');
   const saveButton = document.getElementById('saveSettings');
   const statusDiv = document.getElementById('status');
@@ -19,6 +30,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       statusDiv.style.display = 'none';
     }, 3000);
   }
+
+  // 处理模型类型切换
+  modelTypeSelect.addEventListener('change', () => {
+    const selectedModel = modelTypeSelect.value;
+    azureSettings.classList.toggle('active', selectedModel === 'azure');
+    doubaiSettings.classList.toggle('active', selectedModel === 'doubai');
+  });
 
   // 处理全选
   selectAllCheckbox.addEventListener('change', () => {
@@ -37,17 +55,34 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 加载保存的设置
   const settings = await chrome.storage.sync.get([
-    'endpoint',
-    'apiKey',
-    'deploymentId',
+    'modelType',
+    'azureEndpoint',
+    'azureApiKey',
+    'azureDeploymentId',
+    'doubaiEndpoint',
+    'doubaiApiKey',
+    'doubaiModel',
     'selectedTopics',
     'customTopics'
   ]);
 
   // 填充表单
-  if (settings.endpoint) endpointInput.value = settings.endpoint;
-  if (settings.apiKey) apiKeyInput.value = settings.apiKey;
-  if (settings.deploymentId) deploymentIdInput.value = settings.deploymentId;
+  if (settings.modelType) {
+    modelTypeSelect.value = settings.modelType;
+    azureSettings.classList.toggle('active', settings.modelType === 'azure');
+    doubaiSettings.classList.toggle('active', settings.modelType === 'doubai');
+  }
+  
+  // Azure OpenAI 设置
+  if (settings.azureEndpoint) azureEndpointInput.value = settings.azureEndpoint;
+  if (settings.azureApiKey) azureApiKeyInput.value = settings.azureApiKey;
+  if (settings.azureDeploymentId) azureDeploymentIdInput.value = settings.azureDeploymentId;
+  
+  // 豆包大模型设置
+  if (settings.doubaiEndpoint) doubaiEndpointInput.value = settings.doubaiEndpoint;
+  if (settings.doubaiApiKey) doubaiApiKeyInput.value = settings.doubaiApiKey;
+  if (settings.doubaiModel) doubaiModelInput.value = settings.doubaiModel;
+  
   if (settings.customTopics) customTopicsInput.value = settings.customTopics.join(', ');
 
   // 设置选中的主题
@@ -79,9 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // 保存设置
   saveButton.addEventListener('click', async () => {
-    const endpoint = endpointInput.value.trim();
-    const apiKey = apiKeyInput.value.trim();
-    const deploymentId = deploymentIdInput.value.trim();
+    const modelType = modelTypeSelect.value;
     const selectedTopics = Array.from(topicCheckboxes)
       .filter(checkbox => checkbox.checked)
       .map(checkbox => checkbox.value);
@@ -96,9 +129,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       selectedTopics.push('custom');
     }
 
-    if (!endpoint || !apiKey || !deploymentId) {
-      showStatus('请填写所有必要的 Azure OpenAI 设置', 'error');
-      return;
+    // 验证选中的模型的必要设置
+    if (modelType === 'azure') {
+      const azureEndpoint = azureEndpointInput.value.trim();
+      const azureApiKey = azureApiKeyInput.value.trim();
+      const azureDeploymentId = azureDeploymentIdInput.value.trim();
+      
+      if (!azureEndpoint || !azureApiKey || !azureDeploymentId) {
+        showStatus('请填写所有必要的 Azure OpenAI 设置', 'error');
+        return;
+      }
+    } else if (modelType === 'doubai') {
+      const doubaiEndpoint = doubaiEndpointInput.value.trim();
+      const doubaiApiKey = doubaiApiKeyInput.value.trim();
+      const doubaiModel = doubaiModelInput.value.trim();
+      
+      if (!doubaiEndpoint || !doubaiApiKey || !doubaiModel) {
+        showStatus('请填写所有必要的豆包大模型设置', 'error');
+        return;
+      }
     }
 
     if (selectedTopics.length === 0) {
@@ -108,9 +157,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       await chrome.storage.sync.set({
-        endpoint,
-        apiKey,
-        deploymentId,
+        modelType,
+        azureEndpoint: azureEndpointInput.value.trim(),
+        azureApiKey: azureApiKeyInput.value.trim(),
+        azureDeploymentId: azureDeploymentIdInput.value.trim(),
+        doubaiEndpoint: doubaiEndpointInput.value.trim(),
+        doubaiApiKey: doubaiApiKeyInput.value.trim(),
+        doubaiModel: doubaiModelInput.value.trim(),
         selectedTopics,
         customTopics
       });
