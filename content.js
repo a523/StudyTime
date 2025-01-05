@@ -141,16 +141,13 @@ async function initialize() {
   if (isInitialized) return;
   
   try {
-    // 等待扩展就绪
     const isReady = await waitForExtensionReady();
     if (!isReady) {
       throw new Error('Extension failed to initialize after multiple attempts');
     }
 
-    // 检查扩展是否有效
     if (!chrome.runtime?.id) {
       console.log('Extension context invalid, waiting for reconnection...');
-      // 添加重试逻辑
       setTimeout(() => {
         retryCount = 0;
         initialize();
@@ -158,9 +155,50 @@ async function initialize() {
       return;
     }
 
+    // 添加样式
+    const style = document.createElement('style');
+    style.textContent = `
+      .bili-video-card {
+        position: relative !important;
+      }
+      
+      .study-filter-analyzing-wrapper {
+        position: fixed;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        z-index: 99999;
+        pointer-events: none;
+        background-color: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: bold;
+        animation: pulse 1.5s infinite;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        white-space: nowrap;
+        will-change: transform, opacity;
+      }
+      
+      @keyframes pulse {
+        0% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: translate(-50%, -50%) scale(1.05);
+          opacity: 0.8;
+        }
+        100% {
+          transform: translate(-50%, -50%) scale(1);
+          opacity: 1;
+        }
+      }
+    `;
+    document.head.appendChild(style);
+
     await loadCache();
-    
-    // 断开旧的观察器
     cleanup();
 
     const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
@@ -168,16 +206,12 @@ async function initialize() {
       await chrome.storage.sync.set({ filterEnabled: true });
     }
 
-    // 创建新的观察器
     observer = new MutationObserver(debounce(handleMutation, 500));
-    
-    // 开始观察页面变化
     observer.observe(document.body, {
       childList: true,
       subtree: true
     });
 
-    // 立即处理当前页面上的视频
     await processCurrentVideos();
     
     isInitialized = true;
@@ -186,7 +220,6 @@ async function initialize() {
   } catch (error) {
     console.error('Error during initialization:', error);
     if (error.message.includes('Extension context invalidated')) {
-      // 如果是扩展上下文失效，等待一段时间后重试
       setTimeout(() => {
         retryCount = 0;
         initialize();
@@ -235,7 +268,6 @@ const debouncedProcessing = debounce(async () => {
 // 处理 DOM 变化
 async function handleMutation(mutations) {
   try {
-    // 检查扩展是否有效
     if (!chrome.runtime?.id) {
       throw new Error('Extension context invalidated');
     }
@@ -243,26 +275,10 @@ async function handleMutation(mutations) {
     const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
     if (!filterEnabled) return;
 
-    // 记录 mutation 信息
-    console.log('DOM Mutation detected:', {
-      timestamp: new Date().toISOString(),
-      mutationCount: mutations.length,
-      isProcessing,
-      mutations: mutations.map(m => ({
-        type: m.type,
-        target: m.target.tagName,
-        addedNodes: m.addedNodes.length,
-        removedNodes: m.removedNodes.length
-      }))
-    });
-
-    // 如果正在处理中，跳过本次变化
     if (isProcessing) {
-      console.log('Skipping mutation while processing');
       return;
     }
 
-    // 使用防抖处理
     debouncedProcessing();
   } catch (error) {
     console.error('Error in mutation observer:', error);
@@ -312,58 +328,50 @@ function debounce(func, wait) {
 // 处理当前页面上的视频
 async function processCurrentVideos() {
   try {
-    const selectors = [
-      '.bili-video-card',
-    ];
+    const selectors = ['.bili-video-card'];
+    let hasUnprocessedCards = false;
 
     for (const selector of selectors) {
       try {
         const videoCards = document.querySelectorAll(selector);
-        console.log(`Found ${videoCards.length} cards with selector: ${selector}`);
         
         // 获取所有未处理的卡片
-        const cardsToProcess = Array.from(videoCards).filter(card => {
-          try {
-            return !card.dataset.processed;
-          } catch (error) {
-            console.warn('Error checking card processed status:', error);
-            return false;
-          }
-        });
+        const cardsToProcess = Array.from(videoCards).filter(card => !card.dataset.processed);
         
-        // 如果没有需要处理的卡片，跳过
         if (cardsToProcess.length === 0) continue;
+        
+        hasUnprocessedCards = true;
 
-        // 只添加加载状态，模糊效果已经通过 CSS 添加
+        // 为所有未处理的卡片添加临时模糊效果和事件监听器
         cardsToProcess.forEach(card => {
           try {
-            card.classList.add('study-filter-loading');
+            // 应用临时模糊效果
+            applyBlurEffect(card, true);
           } catch (error) {
-            console.warn('Error adding loading class:', error);
+            console.warn('Error adding temp blur:', error);
           }
         });
 
-        // 收集所有标题
+        // 只在有未处理卡片时显示分析中提示
+        if (hasUnprocessedCards && !document.querySelector('.study-filter-analyzing-wrapper')) {
+          const wrapper = document.createElement('div');
+          wrapper.className = 'study-filter-analyzing-wrapper';
+          wrapper.textContent = '分析中...';
+          document.body.appendChild(wrapper);
+        }
+
+        // 收集所有标题并处理
         const cardTitles = await Promise.all(
-          cardsToProcess.map(async card => {
-            try {
-              return {
-                card,
-                title: await findVideoTitle(card)
-              };
-            } catch (error) {
-              console.warn('Error processing card:', error);
-              return { card, title: null };
-            }
-          })
+          cardsToProcess.map(async card => ({
+            card,
+            title: await findVideoTitle(card)
+          }))
         );
 
-        // 过滤掉没有找到标题的卡片
         const validCardTitles = cardTitles.filter(item => item.title);
-        
         if (validCardTitles.length === 0) continue;
 
-        // 将标题分批处理，每批不超过 CONFIG.BATCH_SIZE
+        // 分批处理
         const batches = [];
         for (let i = 0; i < validCardTitles.length; i += CONFIG.BATCH_SIZE) {
           batches.push(validCardTitles.slice(i, i + CONFIG.BATCH_SIZE));
@@ -372,19 +380,38 @@ async function processCurrentVideos() {
         // 处理每一批
         for (const batch of batches) {
           try {
-            // 批量检查内容
-            const results = await checkMultipleContents(
-              batch.map(item => item.title)
-            );
+            const results = await checkMultipleContents(batch.map(item => item.title));
 
-            // 应用结果
             batch.forEach(({ card, title }, index) => {
               try {
-                card.classList.remove('study-filter-loading');
+                // 移除临时模糊标记
+                card.dataset.tempBlur = 'false';
+                
                 if (!results[index]) {
-                  applyBlurEffect(card, title);
+                  // 应用永久模糊效果
+                  applyBlurEffect(card, false);
                 } else {
-                  card.classList.remove('study-filter-blur');
+                  // 清理所有效果和监听器
+                  if (card.dataset.hasListeners === 'true') {
+                    const oldHandleMouseEnter = card._handleMouseEnter;
+                    const oldHandleMouseLeave = card._handleMouseLeave;
+                    if (oldHandleMouseEnter) card.removeEventListener('mouseenter', oldHandleMouseEnter);
+                    if (oldHandleMouseLeave) card.removeEventListener('mouseleave', oldHandleMouseLeave);
+                    card.dataset.hasListeners = 'false';
+                  }
+                  
+                  // 移除所有模糊效果
+                  const elements = [
+                    card.querySelector('.bili-video-card__cover'),
+                    card.querySelector('.bili-video-card__info--tit'),
+                    card.querySelector('.bili-video-card__info--bottom'),
+                    card.querySelector('.bili-video-card__info--right')
+                  ].filter(Boolean);
+                  
+                  elements.forEach(el => {
+                    el.style.removeProperty('filter');
+                    el.style.removeProperty('transition');
+                  });
                 }
                 card.dataset.processed = 'true';
               } catch (error) {
@@ -393,11 +420,9 @@ async function processCurrentVideos() {
             });
           } catch (error) {
             console.error('Error processing batch:', error);
-            // 如果发生错误，移除加载状态和模糊效果
             batch.forEach(({ card }) => {
               try {
-                card.classList.remove('study-filter-loading');
-                card.classList.remove('study-filter-blur');
+                card.classList.remove('study-filter-temp-blur');
                 card.dataset.processed = 'true';
               } catch (error) {
                 console.warn('Error handling batch error:', error);
@@ -407,6 +432,14 @@ async function processCurrentVideos() {
         }
       } catch (error) {
         console.error('Error processing selector:', error);
+      }
+    }
+
+    // 如果所有卡片都处理完成，移除分析中提示
+    if (!hasUnprocessedCards) {
+      const wrapper = document.querySelector('.study-filter-analyzing-wrapper');
+      if (wrapper) {
+        wrapper.remove();
       }
     }
   } catch (error) {
@@ -489,23 +522,12 @@ function buildAiMessages(topic, titlesToCheck) {
 async function checkMultipleContents(titles) {
   try {
     if (!aiClient) {
-      console.warn('AI 客户端未初始化，返回默认结果');
       return titles.map(() => true);
     }
-
-    console.log('开始处理标题:', {
-      originalTitles: titles,
-      count: titles.length
-    });
 
     const validTitles = titles.map(title => 
       typeof title === 'string' ? title.slice(0, CONFIG.MAX_TITLE_LENGTH) : ''
     ).filter(Boolean);
-
-    console.log('有效标题:', {
-      validTitles,
-      count: validTitles.length
-    });
 
     if (validTitles.length === 0) {
       return titles.map(() => true);
@@ -520,22 +542,13 @@ async function checkMultipleContents(titles) {
 
     const titlesToCheck = results.filter(item => !item.fromCache).map(item => item.title);
 
-    console.log('需要检查的标题:', {
-      titlesToCheck,
-      count: titlesToCheck.length,
-      fromCache: results.filter(item => item.fromCache).length
-    });
-
     if (titlesToCheck.length === 0) {
       return results.map(item => item.result);
     }
 
     const settings = await chrome.storage.sync.get(['selectedTopics', 'customTopics']);
-    
-    // 确定学习主题
     let topics = [];
     if (settings.selectedTopics?.includes('all')) {
-      // 如果选择了全选，包含所有预定义主题和自定义主题
       const topicMap = {
         'programming': '编程',
         'language': '语言学习',
@@ -544,16 +557,11 @@ async function checkMultipleContents(titles) {
         'science': '科学',
         'math': '数学'
       };
-      
-      // 添加所有预定义主题
       topics.push(...Object.values(topicMap));
-      
-      // 添加自定义主题（如果有）
       if (settings.customTopics?.length > 0) {
         topics.push(...settings.customTopics.filter(Boolean));
       }
     } else {
-      // 如果是单独选择
       const topicMap = {
         'programming': '编程',
         'language': '语言学习',
@@ -562,29 +570,21 @@ async function checkMultipleContents(titles) {
         'science': '科学',
         'math': '数学'
       };
-      
-      // 先添加预定义主题
       topics.push(...(settings.selectedTopics || [])
         .filter(topic => topic !== 'custom' && topic !== 'all')
         .map(topic => topicMap[topic])
         .filter(Boolean));
-        
-      // 再添加自定义主题
       if (settings.selectedTopics?.includes('custom') && settings.customTopics?.length > 0) {
         topics.push(...settings.customTopics.filter(Boolean));
       }
     }
 
-    // 添加主题验证
     if (topics.length === 0) {
-      console.warn('未选择任何主题，默认使用"学习"作为主题');
       topics = ['学习'];
     }
 
     const topic = topics.join('、');
-
     const messages = buildAiMessages(topic, titlesToCheck);
-    console.log('发送消息到 AI:', messages);
     const apiResults = await retryWithTimeout(async () => {
       const response = await aiClient.getChatCompletions(messages, {
         maxTokens: Math.max(CONFIG.MAX_TOKENS, titlesToCheck.length * 5),
@@ -594,12 +594,10 @@ async function checkMultipleContents(titles) {
       return ans;
     });
 
-    // 更新缓存
     titlesToCheck.forEach((title, index) => {
       titleCache.set(title, { isLearning: apiResults[index], timestamp: Date.now() });
     });
 
-    // 合并结果
     let resultIndex = 0;
     return results.map(item => item.fromCache ? item.result : apiResults[resultIndex++]);
 
@@ -677,65 +675,102 @@ async function findVideoTitle(card) {
   }
 }
 
-// 应用模糊效果
-function applyBlurEffect(card, title) {
+// 应用模糊效果的统一函数
+function applyBlurEffect(card, isTemporary = false) {
   if (!card) return;
   
-  // 如果已经处理过这个卡片，直接返回
-  if (card.dataset.processed === 'true') {
-    console.log('Card already processed, skipping:', card.dataset.studyFilterId);
+  // 如果已经处理过且不是临时模糊，直接返回
+  if (!isTemporary && card.dataset.processed === 'true') {
     return card;
   }
   
-  console.log('Applying blur effect:', {
-    timestamp: new Date().toISOString(),
-    cardId: card.dataset.studyFilterId || 'new-card',
-    hasBlurClass: card.classList.contains('study-filter-blur'),
-    title: title
-  });
+  // 如果已经有临时模糊效果，不要重复应用
+  if (isTemporary && card.dataset.tempBlur === 'true') {
+    return card;
+  }
   
-  // 确保元素有唯一标识
+  // 确保有唯一标识
   if (!card.dataset.studyFilterId) {
     card.dataset.studyFilterId = Date.now() + Math.random().toString(36).substr(2, 9);
   }
   
-  // 添加模糊效果
-  card.classList.add('study-filter-blur');
-  
-  // 创建事件处理函数
-  function handleMouseEnter(e) {
-    // 阻止事件冒泡
-    e.stopPropagation();
+  // 移除旧的事件监听器和样式
+  function cleanup() {
+    if (card.dataset.hasListeners === 'true') {
+      const oldHandleMouseEnter = card._handleMouseEnter;
+      const oldHandleMouseLeave = card._handleMouseLeave;
+      if (oldHandleMouseEnter) card.removeEventListener('mouseenter', oldHandleMouseEnter);
+      if (oldHandleMouseLeave) card.removeEventListener('mouseleave', oldHandleMouseLeave);
+      card.dataset.hasListeners = 'false';
+    }
     
-    console.log('Mouse enter:', {
-      timestamp: new Date().toISOString(),
-      cardId: this.dataset.studyFilterId,
-      hasBlurClass: this.classList.contains('study-filter-blur')
+    // 清除所有子元素的样式
+    const elements = [
+      card.querySelector('.bili-video-card__cover'),
+      card.querySelector('.bili-video-card__info--tit'),
+      card.querySelector('.bili-video-card__info--bottom'),
+      card.querySelector('.bili-video-card__info--right')
+    ].filter(Boolean);
+    
+    elements.forEach(el => {
+      el.style.removeProperty('filter');
+      el.style.removeProperty('transition');
     });
+  }
+  
+  // 先清理旧的效果
+  cleanup();
+  
+  // 创建新的事件处理函数
+  function handleMouseEnter(e) {
+    if (e) e.stopPropagation();
+    const elements = [
+      this.querySelector('.bili-video-card__cover'),
+      this.querySelector('.bili-video-card__info--tit'),
+      this.querySelector('.bili-video-card__info--bottom'),
+      this.querySelector('.bili-video-card__info--right')
+    ].filter(Boolean);
     
-    this.classList.remove('study-filter-blur');
-    this.style.transition = 'filter 0.3s ease';
+    elements.forEach(el => {
+      el.style.filter = 'none';
+      el.style.transition = 'filter 0.3s ease';
+    });
   }
   
   function handleMouseLeave(e) {
-    // 阻止事件冒泡
-    e.stopPropagation();
+    if (e) e.stopPropagation();
+    const elements = [
+      this.querySelector('.bili-video-card__cover'),
+      this.querySelector('.bili-video-card__info--tit'),
+      this.querySelector('.bili-video-card__info--bottom'),
+      this.querySelector('.bili-video-card__info--right')
+    ].filter(Boolean);
     
-    console.log('Mouse leave:', {
-      timestamp: new Date().toISOString(),
-      cardId: this.dataset.studyFilterId,
-      hasBlurClass: this.classList.contains('study-filter-blur')
+    elements.forEach(el => {
+      el.style.filter = 'blur(10px)';
+      el.style.transition = 'filter 0.3s ease';
     });
-    
-    this.classList.add('study-filter-blur');
   }
   
-  // 直接在原卡片上绑定事件，不再使用克隆
+  // 保存事件处理函数的引用
+  card._handleMouseEnter = handleMouseEnter;
+  card._handleMouseLeave = handleMouseLeave;
+  
+  // 绑定事件监听器
   card.addEventListener('mouseenter', handleMouseEnter);
   card.addEventListener('mouseleave', handleMouseLeave);
+  card.dataset.hasListeners = 'true';
   
-  // 标记为已处理
-  card.dataset.processed = 'true';
+  // 标记状态
+  if (isTemporary) {
+    card.dataset.tempBlur = 'true';
+  } else {
+    card.dataset.processed = 'true';
+    card.dataset.tempBlur = 'false';
+  }
+  
+  // 立即应用模糊效果（不传递事件对象）
+  handleMouseLeave.call(card);
   
   return card;
 }
