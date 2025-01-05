@@ -216,18 +216,21 @@ async function handleInitError() {
   }
 }
 
+// 添加处理状态追踪
+let isProcessing = false;
+let processingTimeout = null;
+
 // 防抖函数
-function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-}
+const debouncedProcessing = debounce(async () => {
+  if (isProcessing) return;
+  
+  try {
+    isProcessing = true;
+    await processCurrentVideos();
+  } finally {
+    isProcessing = false;
+  }
+}, 1000);
 
 // 处理 DOM 变化
 async function handleMutation(mutations) {
@@ -240,12 +243,31 @@ async function handleMutation(mutations) {
     const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
     if (!filterEnabled) return;
 
-    await processCurrentVideos();
+    // 记录 mutation 信息
+    console.log('DOM Mutation detected:', {
+      timestamp: new Date().toISOString(),
+      mutationCount: mutations.length,
+      isProcessing,
+      mutations: mutations.map(m => ({
+        type: m.type,
+        target: m.target.tagName,
+        addedNodes: m.addedNodes.length,
+        removedNodes: m.removedNodes.length
+      }))
+    });
+
+    // 如果正在处理中，跳过本次变化
+    if (isProcessing) {
+      console.log('Skipping mutation while processing');
+      return;
+    }
+
+    // 使用防抖处理
+    debouncedProcessing();
   } catch (error) {
     console.error('Error in mutation observer:', error);
     if (error.message.includes('Extension context invalidated')) {
       cleanup();
-      // 等待扩展重新加载
       setTimeout(() => {
         retryCount = 0;
         initialize();
@@ -264,7 +286,27 @@ function cleanup() {
     }
     observer = null;
   }
+  
+  // 清理定时器和状态
+  if (processingTimeout) {
+    clearTimeout(processingTimeout);
+    processingTimeout = null;
+  }
+  isProcessing = false;
   isInitialized = false;
+}
+
+// 防抖函数实现
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
 }
 
 // 处理当前页面上的视频
@@ -637,23 +679,65 @@ async function findVideoTitle(card) {
 
 // 应用模糊效果
 function applyBlurEffect(card, title) {
+  if (!card) return;
+  
+  // 如果已经处理过这个卡片，直接返回
+  if (card.dataset.processed === 'true') {
+    console.log('Card already processed, skipping:', card.dataset.studyFilterId);
+    return card;
+  }
+  
+  console.log('Applying blur effect:', {
+    timestamp: new Date().toISOString(),
+    cardId: card.dataset.studyFilterId || 'new-card',
+    hasBlurClass: card.classList.contains('study-filter-blur'),
+    title: title
+  });
+  
+  // 确保元素有唯一标识
+  if (!card.dataset.studyFilterId) {
+    card.dataset.studyFilterId = Date.now() + Math.random().toString(36).substr(2, 9);
+  }
+  
+  // 添加模糊效果
   card.classList.add('study-filter-blur');
   
-  const handleMouseEnter = () => {
-    card.classList.remove('study-filter-blur');
-  };
+  // 创建事件处理函数
+  function handleMouseEnter(e) {
+    // 阻止事件冒泡
+    e.stopPropagation();
+    
+    console.log('Mouse enter:', {
+      timestamp: new Date().toISOString(),
+      cardId: this.dataset.studyFilterId,
+      hasBlurClass: this.classList.contains('study-filter-blur')
+    });
+    
+    this.classList.remove('study-filter-blur');
+    this.style.transition = 'filter 0.3s ease';
+  }
   
-  const handleMouseLeave = () => {
-    card.classList.add('study-filter-blur');
-  };
+  function handleMouseLeave(e) {
+    // 阻止事件冒泡
+    e.stopPropagation();
+    
+    console.log('Mouse leave:', {
+      timestamp: new Date().toISOString(),
+      cardId: this.dataset.studyFilterId,
+      hasBlurClass: this.classList.contains('study-filter-blur')
+    });
+    
+    this.classList.add('study-filter-blur');
+  }
   
-  // 移除旧的事件监听器（如果存在）
-  card.removeEventListener('mouseenter', handleMouseEnter);
-  card.removeEventListener('mouseleave', handleMouseLeave);
-  
-  // 添加新的事件监听器
+  // 直接在原卡片上绑定事件，不再使用克隆
   card.addEventListener('mouseenter', handleMouseEnter);
   card.addEventListener('mouseleave', handleMouseLeave);
+  
+  // 标记为已处理
+  card.dataset.processed = 'true';
+  
+  return card;
 }
 
 // 监听来自 background script 的消息
