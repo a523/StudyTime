@@ -8,12 +8,9 @@ const MAX_RETRIES = 3;
 const titleCache = new Map();
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24小时缓存
 
-// 添加批处理大小常量
-const BATCH_SIZE = 30; // 每次处理30个标题
-
 // 添加配置常量
 const CONFIG = {
-  BATCH_SIZE: 50,                    // 每批处理的标题数量
+  BATCH_SIZE: 30,                    // 每批处理的标题数量
   CACHE_DURATION: 24 * 60 * 60 * 1000, // 缓存时长（24小时）
   MAX_RETRIES: 3,                    // 最大重试次数
   RETRY_DELAY: 1000,                // 初始重试延迟（毫秒）
