@@ -5,22 +5,98 @@
   <style>
     body {
       width: 300px;
-      padding: 10px;
+      padding: 20px;
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 0;
     }
+
+    .container {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      padding: 15px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+    }
+
+    h2 {
+      color: var(--heading-color);
+      margin: 0 0 20px 0;
+      font-size: 18px;
+      text-align: center;
+    }
+
     .switch {
-      margin: 10px 0;
+      margin: 15px 0;
+      padding: 10px;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .switch label {
+      display: flex;
+      align-items: center;
+      color: var(--label-color);
+      cursor: pointer;
+    }
+
+    .switch input[type="checkbox"] {
+      margin-right: 8px;
+      width: 16px;
+      height: 16px;
+    }
+
+    button {
+      background-color: #4CAF50;
+      color: white;
+      padding: 10px 20px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-family: inherit;
+      width: 100%;
+      font-size: 14px;
+      transition: background-color 0.3s;
+    }
+
+    button:hover {
+      background-color: #45a049;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-color: #1a1a1a;
+        --text-color: #ffffff;
+        --heading-color: #ffffff;
+        --label-color: #cccccc;
+        --border-color: #444444;
+      }
+    }
+
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg-color: #ffffff;
+        --text-color: #333333;
+        --heading-color: #000000;
+        --label-color: #666666;
+        --border-color: #e0e0e0;
+      }
     }
   </style>
 </head>
 <body>
-  <h2>B站学习助手</h2>
-  <div class="switch">
-    <label>
-      <input type="checkbox" id="filterEnabled">
-      启用内容过滤
-    </label>
+  <div class="container">
+    <h2>学习时刻</h2>
+    <div class="switch">
+      <label>
+        <input type="checkbox" id="filterEnabled">
+        启用内容过滤
+      </label>
+    </div>
+    <button id="openOptions">设置</button>
   </div>
-  <button id="openOptions">设置</button>
   <script src="popup.js"></script>
 </body>
 </html> 
