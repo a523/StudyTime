@@ -10,7 +10,8 @@
   ],
   "host_permissions": [
     "https://*.openai.azure.com/*",
-    "https://*.volces.com/*"
+    "https://*.volces.com/*",
+    "https://ark.cn-beijing.volces.com/*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -27,7 +28,8 @@
   },
   "options_page": "options.html",
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
   "content_scripts": [
     {

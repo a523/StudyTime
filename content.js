@@ -382,9 +382,21 @@ async function processApiResponse(response, titlesToCheck) {
     throw new Error('Empty response from API');
   }
 
+  console.log('处理 API 响应:', {
+    answer,
+    titlesToCheck,
+    titlesToCheckLength: titlesToCheck.length
+  });
+
   const answers = answer.split(',').map(r => r.trim().toLowerCase());
 
   if (answers.length !== titlesToCheck.length) {
+    console.error('响应数量不匹配:', {
+      expected: titlesToCheck.length,
+      got: answers.length,
+      answers,
+      titles: titlesToCheck
+    });
     throw new Error(`Response count mismatch: expected ${titlesToCheck.length}, got ${answers.length}. Response: ${answer}`);
   }
 
@@ -439,9 +451,19 @@ async function checkMultipleContents(titles) {
       return titles.map(() => true);
     }
 
+    console.log('开始处理标题:', {
+      originalTitles: titles,
+      count: titles.length
+    });
+
     const validTitles = titles.map(title => 
       typeof title === 'string' ? title.slice(0, CONFIG.MAX_TITLE_LENGTH) : ''
     ).filter(Boolean);
+
+    console.log('有效标题:', {
+      validTitles,
+      count: validTitles.length
+    });
 
     if (validTitles.length === 0) {
       return titles.map(() => true);
@@ -455,6 +477,13 @@ async function checkMultipleContents(titles) {
     }));
 
     const titlesToCheck = results.filter(item => !item.fromCache).map(item => item.title);
+
+    console.log('需要检查的标题:', {
+      titlesToCheck,
+      count: titlesToCheck.length,
+      fromCache: results.filter(item => item.fromCache).length
+    });
+
     if (titlesToCheck.length === 0) {
       return results.map(item => item.result);
     }
@@ -519,7 +548,7 @@ async function checkMultipleContents(titles) {
         maxTokens: Math.max(CONFIG.MAX_TOKENS, titlesToCheck.length * 5),
         temperature: 0
       });
-      const ans = processApiResponse(response, titlesToCheck);
+      const ans = await processApiResponse(response, titlesToCheck);
       return ans;
     });
 
