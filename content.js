@@ -9,19 +9,19 @@ const titleCache = new Map();
 const CACHE_DURATION = 24 * 60 * 60 * 1000; // 24小时缓存
 
 // 添加批处理大小常量
-const BATCH_SIZE = 5; // 每次处理5个标题
+const BATCH_SIZE = 30; // 每次处理30个标题
 
 // 添加配置常量
 const CONFIG = {
   BATCH_SIZE: 50,                    // 每批处理的标题数量
   CACHE_DURATION: 24 * 60 * 60 * 1000, // 缓存时长（24小时）
-  MAX_RETRIES: 3,                   // 最大重试次数
-  RETRY_DELAY: 8000,               // 重试延迟（毫秒）
+  MAX_RETRIES: 3,                    // 最大重试次数
+  RETRY_DELAY: 1000,                // 初始重试延迟（毫秒）
   MAX_TITLE_LENGTH: 200,           // 标题最大长度
-  MIN_CONFIDENCE: 0.7,             // AI 判断的最小置信度
-  DEFAULT_TEMPERATURE: 0.1,        // AI 温度参数
+  DEFAULT_TEMPERATURE: 0,          // AI 温度参数（0表示最确定的输出）
   MAX_TOKENS: 100,                 // 最大 token 数
-  RESPONSE_TIMEOUT: 30000          // 响应超时时间（毫秒）
+  RESPONSE_TIMEOUT: 60000,         // 响应超时时间（60秒）
+  RETRY_BACKOFF_FACTOR: 1.5        // 重试延迟增长因子
 };
 
 // 初始化 AI 客户端
@@ -573,18 +573,23 @@ async function checkMultipleContents(titles) {
 // 重试函数
 async function retryWithTimeout(operation) {
   let retryCount = 0;
+  let delay = CONFIG.RETRY_DELAY;
+
   while (retryCount < CONFIG.MAX_RETRIES) {
     try {
       return await Promise.race([
         operation(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Request timeout')), CONFIG.RESPONSE_TIMEOUT))
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Request timeout')), CONFIG.RESPONSE_TIMEOUT)
+        )
       ]);
     } catch (error) {
       retryCount++;
-      console.error(`Attempt ${retryCount} failed:`, error);
+      console.warn(`Attempt ${retryCount} failed:`, error);
       
       if (error.message.includes('call rate limit')) {
-        await new Promise(resolve => setTimeout(resolve, CONFIG.RETRY_DELAY));
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay *= CONFIG.RETRY_BACKOFF_FACTOR; // 指数退避
         continue;
       }
       
@@ -592,7 +597,8 @@ async function retryWithTimeout(operation) {
         throw error;
       }
       
-      await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+      await new Promise(resolve => setTimeout(resolve, delay));
+      delay *= CONFIG.RETRY_BACKOFF_FACTOR; // 指数退避
     }
   }
 }
