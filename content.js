@@ -417,28 +417,31 @@ function buildAiMessages(topic, titlesToCheck) {
   return [
     {
       role: "system",
-      content: `你是一个教育内容分析助手。请根据以下规则分析视频标题：
+      content: `你是一个教育内容分析助手。你的任务是严格按照以下规则分析视频标题：
 
                分析规则：
                1. 判断标题是否与以下主题相关：【${topic}】
                2. 只要标题与其中任何一个主题相关，就回答"是"
                3. 如果与所有主题都无关，则回答"否"
-               4. 答案用逗号分隔
-               5. 必须回答所有${titlesToCheck.length}个标题
-               6. 仅输出答案，无需解释
+               4. 答案必须用逗号分隔，且必须是"是"或"否"
+               5. 必须且只能回答${titlesToCheck.length}个答案，不能多也不能少
+               6. 仅输出答案，不要有任何解释或额外内容
+               7. 答案必须与输入标题一一对应
                
-               示例格式：
-               输入：
-               1. Python编程入门教程
-               2. 猫咪日常生活
-               3. 英语口语练习
-               
-               输出（假设主题是"【编程、语言学习】"）：
-               是,否,是`
+               错误示例：
+               - 输出超过${titlesToCheck.length}个答案
+               - 输出少于${titlesToCheck.length}个答案
+               - 包含额外的解释文字
+               - 使用"是"和"否"以外的词
+
+               正确示例（假设输入3个标题）：
+               是,否,是
+
+               请记住：你的输出必须且只能包含${titlesToCheck.length}个由逗号分隔的"是"或"否"。`
     },
     {
       role: "user",
-      content: `请分析以下${titlesToCheck.length}个标题是否与这些主题相关：【${topic}】\n${numberedTitles}`
+      content: `请严格分析以下${titlesToCheck.length}个标题是否与这些主题相关：【${topic}】\n${numberedTitles}\n\n请记住：只需输出${titlesToCheck.length}个答案，用逗号分隔。`
     }
   ];
 }
