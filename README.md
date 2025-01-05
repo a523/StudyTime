@@ -8,12 +8,16 @@ A Chrome extension that helps you stay focused on learning by intelligently iden
 
 ## Features
 
+- 🎯 Multiple AI Model Support
+  - Azure OpenAI
+  - Doubao Model
 - 🎯 Smart learning content detection
 - 🔍 Automatic non-learning content filtering
 - 🎨 Light/Dark theme support
 - ⚙️ Customizable learning topics
 - 🔄 Real-time content analysis
 - 👀 Hover preview for filtered content
+- ⚡ High-performance caching system
 
 ## Installation
 
@@ -25,13 +29,23 @@ A Chrome extension that helps you stay focused on learning by intelligently iden
 
 ## Usage Guide
 
-### Basic Setup
+### AI Model Configuration
 
-1. Click the extension icon to access settings
-2. Configure Azure OpenAI service:
+#### Azure OpenAI Setup
+
+1. Select "Azure OpenAI" in extension settings
+2. Configure the service:
    - Enter Endpoint
    - Enter API Key
    - Enter Deployment ID
+
+#### Doubao Model Setup
+
+1. Select "Doubao Model" in extension settings
+2. Configure the service:
+   - Enter Endpoint (default: <https://ark.cn-beijing.volces.com>)
+   - Enter API Key
+   - Enter Model ID
 
 ### Learning Topics
 
@@ -54,13 +68,14 @@ You can also add custom topics, separated by commas.
 
 ## Technical Details
 
-The extension uses Azure OpenAI service to analyze video titles and determine if they're related to your selected learning topics. Related content is displayed normally, while unrelated content is blurred.
+The extension supports both Azure OpenAI and Doubao Model for content analysis. It analyzes video titles to determine if they're related to your selected learning topics. Related content is displayed normally, while unrelated content is blurred.
 
 ## Important Notes
 
-- Azure OpenAI service configuration is required
+- Either Azure OpenAI or Doubao Model configuration is required
 - Initial setup must be completed before first use
 - Choose appropriate learning topics for best results
+- The extension includes a caching system to optimize performance
 
 ## Privacy
 
