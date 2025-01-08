@@ -33,14 +33,35 @@ const State = {
   aiClient: null
 };
 
-// 添加 UI 组件管理
+// 修改 UI 组件管理
 const UI = {
+  stats: {
+    total: 0,
+    processed: 0,
+    removed: 0
+  },
+
   // 创建分析提示符
   createAnalyzer() {
     const wrapper = document.createElement('div');
     wrapper.className = 'study-filter-analyzing-wrapper';
-    wrapper.textContent = '分析中...';
+    
+    const content = document.createElement('div');
+    content.className = 'study-filter-analyzing-content';
+    
+    const progress = document.createElement('div');
+    progress.className = 'study-filter-analyzing-progress';
+    progress.textContent = '正在分析视频内容...';
+    
+    const stats = document.createElement('div');
+    stats.className = 'study-filter-analyzing-stats';
+    stats.textContent = '已分析: 0 / 0';
+    
+    content.appendChild(progress);
+    content.appendChild(stats);
+    wrapper.appendChild(content);
     document.body.appendChild(wrapper);
+    
     return wrapper;
   },
 
@@ -54,11 +75,44 @@ const UI = {
     return analyzer;
   },
 
+  // 更新分析进度
+  updateProgress(processed, total) {
+    const analyzer = document.querySelector('.study-filter-analyzing-wrapper');
+    if (analyzer) {
+      // 确保处理数不超过总数
+      this.stats.processed = Math.min(processed, total);
+      this.stats.total = total;
+      const stats = analyzer.querySelector('.study-filter-analyzing-stats');
+      if (stats) {
+        stats.textContent = `已分析: ${this.stats.processed} / ${this.stats.total}`;
+      }
+    }
+  },
+
+  // 显示过滤结果
+  showFilterResult() {
+    const analyzer = document.querySelector('.study-filter-analyzing-wrapper');
+    if (analyzer) {
+      analyzer.classList.add('completed');
+      const progress = analyzer.querySelector('.study-filter-analyzing-progress');
+      const stats = analyzer.querySelector('.study-filter-analyzing-stats');
+      if (progress && stats) {
+        progress.textContent = '过滤完成';
+        stats.textContent = `共分析 ${this.stats.total} 个视频，移除了 ${this.stats.removed} 个不相关视频，下滑可以加载更多，或者你可以通过搜索获得更多相关视频。`;
+      }
+      
+      // 5秒后隐藏提示
+      setTimeout(() => {
+        this.hideAnalyzer();
+      }, 5000);
+    }
+  },
+
   // 隐藏分析提示符
   hideAnalyzer() {
     const analyzer = document.querySelector('.study-filter-analyzing-wrapper');
     if (analyzer) {
-      analyzer.classList.remove('show');
+      analyzer.classList.remove('show', 'completed');
       setTimeout(() => {
         if (analyzer.parentNode) {
           analyzer.parentNode.removeChild(analyzer);
@@ -73,28 +127,55 @@ const UI = {
   }
 };
 
-// 添加样式管理
+// 修改样式管理
 const Styles = {
   mainStyles: `
     /* 分析提示符样式 */
     .study-filter-analyzing-wrapper {
       position: fixed;
-      bottom: 20px;
-      right: 20px;
-      background-color: rgba(0, 0, 0, 0.7);
+      bottom: 0;
+      left: 0;
+      right: 0;
+      background-color: rgba(0, 0, 0, 0.8);
       color: white;
-      padding: 8px 16px;
-      border-radius: 20px;
+      padding: 12px 0;
       font-size: 14px;
       font-weight: bold;
       z-index: 99999;
       opacity: 0;
-      transition: opacity 0.3s ease;
-      pointer-events: none;
+      transition: all 0.3s ease;
+      text-align: center;
     }
 
     .study-filter-analyzing-wrapper.show {
       opacity: 1;
+    }
+
+    .study-filter-analyzing-wrapper.completed {
+      background-color: rgba(40, 167, 69, 0.9);
+    }
+
+    .study-filter-analyzing-content {
+      max-width: 800px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .study-filter-analyzing-progress {
+      font-size: 16px;
+      color: #ffffff;
+    }
+
+    .study-filter-analyzing-stats {
+      font-size: 14px;
+      color: rgba(255, 255, 255, 0.9);
+    }
+
+    .study-filter-analyzing-wrapper.completed .study-filter-analyzing-stats {
+      color: rgba(255, 255, 255, 0.95);
     }
 
     /* 视频卡片样式 */
@@ -120,20 +201,13 @@ const Styles = {
       gap: 20px !important;
       padding: 20px !important;
       opacity: 1 !important;
-      min-height: 0 !important; /* 防止空容器占位 */
+      min-height: 0 !important;
       height: auto !important;
     }
 
     /* 隐藏过滤的卡片 */
     .study-filter-hidden {
       display: none !important;
-      width: 0 !important;
-      height: 0 !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      opacity: 0 !important;
-      position: absolute !important;
-      pointer-events: none !important;
     }
   `,
 
@@ -369,7 +443,9 @@ async function processCurrentVideos() {
     const videoCards = document.querySelectorAll('.bili-video-card:not([data-processed])');
     if (videoCards.length === 0) return;
 
+    UI.stats.removed = 0;
     UI.showAnalyzer();
+    UI.updateProgress(0, videoCards.length);
 
     // 收集所有标题
     const cardTitles = await Promise.all(
@@ -396,21 +472,20 @@ async function processCurrentVideos() {
           try {
             card.dataset.processed = 'true';
             if (results[index]) {
-              // 符合要求的视频
               card.classList.remove('study-filter-hidden');
               card.style.removeProperty('opacity');
             } else {
-              // 不符合要求的视频，直接从 DOM 中移除
               const parentContainer = card.closest('.feed-card');
               if (card.parentElement) {
                 card.parentElement.removeChild(card);
+                UI.stats.removed++;
                 
-                // 如果父容器为空，也移除父容器
                 if (parentContainer && !parentContainer.querySelector('.bili-video-card:not(.study-filter-hidden)')) {
                   parentContainer.remove();
                 }
               }
             }
+            UI.updateProgress(UI.stats.processed + index + 1, UI.stats.total);
           } catch (error) {
             console.warn('Error processing card:', error);
           }
@@ -429,8 +504,8 @@ async function processCurrentVideos() {
     // 最后再次清理空容器
     removeEmptyContainers();
 
-    // 隐藏分析提示符
-    UI.hideAnalyzer();
+    // 显示过滤结果
+    UI.showFilterResult();
   } catch (error) {
     console.error('Error in processCurrentVideos:', error);
     UI.hideAnalyzer();
