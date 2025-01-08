@@ -1,47 +1,42 @@
 {
   "manifest_version": 3,
-  "name": "学习时刻",
+  "name": "Study Filter",
   "version": "1.0",
-  "description": "智能学习内容过滤和优化工具",
+  "description": "Filter and focus on learning content",
   "permissions": [
     "storage",
-    "activeTab",
-    "scripting"
+    "tabs"
   ],
   "host_permissions": [
+    "*://*.bilibili.com/*",
     "https://*.openai.azure.com/*",
     "https://*.volces.com/*",
     "https://ark.cn-beijing.volces.com/*"
   ],
-  "action": {
-    "default_popup": "popup.html",
-    "default_icon": {
-      "16": "images/icon16.png",
-      "48": "images/icon48.png",
-      "128": "images/icon128.png"
-    }
-  },
-  "icons": {
-    "16": "images/icon16.png",
-    "48": "images/icon48.png",
-    "128": "images/icon128.png"
-  },
-  "options_page": "options.html",
   "background": {
-    "service_worker": "background.js",
-    "type": "module"
+    "service_worker": "background.js"
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
-      "css": ["content.css"],
+      "matches": ["*://*.bilibili.com/*"],
       "js": [
         "models/base-client.js",
         "models/azure-openai-client.js",
         "models/doubai-client.js",
         "models/ai-client-factory.js",
         "content.js"
-      ]
+      ],
+      "css": ["styles/content.css"]
     }
-  ]
+  ],
+  "web_accessible_resources": [{
+    "resources": [
+      "styles/*.css"
+    ],
+    "matches": ["*://*.bilibili.com/*"]
+  }],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "options_page": "options.html"
 } 

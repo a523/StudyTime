@@ -9,4 +9,6 @@ class AIClientFactory {
         throw new Error(`Unsupported AI client type: ${type}`);
     }
   }
-} 
+}
+
+window.AIClientFactory = AIClientFactory; 

@@ -336,45 +336,10 @@ async function waitForExtensionReady(maxAttempts = 5, interval = 1000) {
 
 // 修改初始化样式注入
 (function injectInitialStyles() {
-  const style = document.createElement('style');
-  style.textContent = `
-    /* 初始隐藏视频卡片 */
-    .bili-video-card {
-      opacity: 0;
-      transition: opacity 0.3s ease;
-    }
-
-    /* 显示已处理的卡片 */
-    .bili-video-card[data-processed="true"]:not(.study-filter-hidden) {
-      opacity: 1 !important;
-    }
-
-    /* 隐藏轮播 */
-    .recommended-swipe.grid-anchor {
-      display: none !important;
-    }
-
-    /* 确保容器可见 */
-    .feed-card,
-    .bili-grid {
-      opacity: 1 !important;
-      display: grid !important;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
-      gap: 20px !important;
-      padding: 20px !important;
-    }
-
-    /* 隐藏被过滤的卡片 */
-    .study-filter-hidden {
-      display: none !important;
-      width: 0 !important;
-      height: 0 !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      opacity: 0 !important;
-    }
-  `;
-  document.documentElement.appendChild(style);
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = chrome.runtime.getURL('styles/content.css');
+  document.head.appendChild(link);
 })();
 
 // 修改初始化布局函数

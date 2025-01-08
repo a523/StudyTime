@@ -1,0 +1,42 @@
+/* Essential video blur filter */
+.bili-video-card:not([data-processed="true"]) {
+  filter: blur(5px);
+  position: relative;
+  will-change: filter;
+  transform: translateZ(0);
+}
+
+/* Study filter loading state */
+.study-filter-loading {
+  position: relative;
+}
+
+.study-filter-loading::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(255, 255, 255, 0.9);
+  z-index: 1;
+}
+
+.study-filter-loading::after {
+  content: '分析中...';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 2;
+  background: white;
+  padding: 5px 10px;
+  border-radius: 4px;
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+/* Forced blur for non-learning content */
+.study-filter-blur {
+  filter: blur(5px) !important;
+  transition: filter 0.3s ease;
+} 
