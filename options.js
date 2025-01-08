@@ -63,7 +63,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     'doubaiApiKey',
     'doubaiModel',
     'selectedTopics',
-    'customTopics'
+    'customTopics',
+    'filterMode'
   ]);
 
   // 填充表单
@@ -100,6 +101,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     topicCheckboxes.forEach(checkbox => checkbox.checked = true);
   }
 
+  // 设置过滤方式
+  const filterModeSelect = document.getElementById('filterMode');
+  if (settings.filterMode) {
+    filterModeSelect.value = settings.filterMode;
+  } else {
+    // 默认为隐藏模式
+    filterModeSelect.value = 'hide';
+  }
+
   // 更新主题指示器
   function updateThemeIndicator() {
     const isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
@@ -115,6 +125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   // 保存设置
   saveButton.addEventListener('click', async () => {
     const modelType = modelTypeSelect.value;
+    const filterMode = filterModeSelect.value;
     const selectedTopics = Array.from(topicCheckboxes)
       .filter(checkbox => checkbox.checked)
       .map(checkbox => checkbox.value);
@@ -165,7 +176,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         doubaiApiKey: doubaiApiKeyInput.value.trim(),
         doubaiModel: doubaiModelInput.value.trim(),
         selectedTopics,
-        customTopics
+        customTopics,
+        filterMode
       });
       
       showStatus('设置已保存！');

@@ -136,6 +136,16 @@ async function waitForExtensionReady(maxAttempts = 5, interval = 1000) {
   return false;
 }
 
+// 初始化布局
+function initializeLayout() {
+  const containers = document.querySelectorAll('.bili-grid, .feed-card');
+  containers.forEach(container => {
+    if (!container.classList.contains('bili-grid') && !container.classList.contains('feed-card')) {
+      container.classList.add('bili-grid');
+    }
+  });
+}
+
 // 初始化函数
 async function initialize() {
   if (isInitialized) return;
@@ -164,9 +174,9 @@ async function initialize() {
       
       .study-filter-analyzing-wrapper {
         position: fixed;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
+        bottom: 20px;
+        right: 20px;
+        transform: none;
         z-index: 99999;
         pointer-events: none;
         background-color: rgba(0, 0, 0, 0.7);
@@ -175,31 +185,40 @@ async function initialize() {
         border-radius: 20px;
         font-size: 14px;
         font-weight: bold;
-        animation: pulse 1.5s infinite;
         box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
         white-space: nowrap;
-        will-change: transform, opacity;
+        opacity: 0;
+        transition: opacity 0.3s ease;
+      }
+
+      .study-filter-analyzing-wrapper.show {
+        opacity: 1;
       }
       
-      @keyframes pulse {
-        0% {
-          transform: translate(-50%, -50%) scale(1);
-          opacity: 1;
-        }
-        50% {
-          transform: translate(-50%, -50%) scale(1.05);
-          opacity: 0.8;
-        }
-        100% {
-          transform: translate(-50%, -50%) scale(1);
-          opacity: 1;
-        }
+      .study-filter-hidden {
+        display: none !important;
+      }
+
+      /* 保持网格布局的样式 */
+      .bili-grid {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+        grid-gap: 20px !important;
+        padding: 0 20px !important;
+      }
+
+      /* 保持瀑布流布局的样式 */
+      .feed-card {
+        display: grid !important;
+        grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+        grid-gap: 20px !important;
       }
     `;
     document.head.appendChild(style);
 
     await loadCache();
     cleanup();
+    initializeLayout();
 
     const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
     if (filterEnabled === undefined) {
@@ -330,35 +349,35 @@ async function processCurrentVideos() {
   try {
     const selectors = ['.bili-video-card'];
     let hasUnprocessedCards = false;
+    let analysisWrapper = document.querySelector('.study-filter-analyzing-wrapper');
+
+    // 创建或更新分析提示符
+    if (!analysisWrapper) {
+      analysisWrapper = document.createElement('div');
+      analysisWrapper.className = 'study-filter-analyzing-wrapper';
+      analysisWrapper.textContent = '分析中...';
+      document.body.appendChild(analysisWrapper);
+    }
 
     for (const selector of selectors) {
       try {
         const videoCards = document.querySelectorAll(selector);
-        
-        // 获取所有未处理的卡片
         const cardsToProcess = Array.from(videoCards).filter(card => !card.dataset.processed);
         
         if (cardsToProcess.length === 0) continue;
         
         hasUnprocessedCards = true;
+        // 显示分析提示符
+        analysisWrapper.classList.add('show');
 
-        // 为所有未处理的卡片添加临时模糊效果和事件监听器
+        // 为所有未处理的卡片添加临时模糊效果
         cardsToProcess.forEach(card => {
           try {
-            // 应用临时模糊效果
-            applyBlurEffect(card, true);
+            applyFilterEffect(card, true);
           } catch (error) {
             console.warn('Error adding temp blur:', error);
           }
         });
-
-        // 只在有未处理卡片时显示分析中提示
-        if (hasUnprocessedCards && !document.querySelector('.study-filter-analyzing-wrapper')) {
-          const wrapper = document.createElement('div');
-          wrapper.className = 'study-filter-analyzing-wrapper';
-          wrapper.textContent = '分析中...';
-          document.body.appendChild(wrapper);
-        }
 
         // 收集所有标题并处理
         const cardTitles = await Promise.all(
@@ -381,37 +400,11 @@ async function processCurrentVideos() {
         for (const batch of batches) {
           try {
             const results = await checkMultipleContents(batch.map(item => item.title));
-
             batch.forEach(({ card, title }, index) => {
               try {
-                // 移除临时模糊标记
                 card.dataset.tempBlur = 'false';
-                
                 if (!results[index]) {
-                  // 应用永久模糊效果
-                  applyBlurEffect(card, false);
-                } else {
-                  // 清理所有效果和监听器
-                  if (card.dataset.hasListeners === 'true') {
-                    const oldHandleMouseEnter = card._handleMouseEnter;
-                    const oldHandleMouseLeave = card._handleMouseLeave;
-                    if (oldHandleMouseEnter) card.removeEventListener('mouseenter', oldHandleMouseEnter);
-                    if (oldHandleMouseLeave) card.removeEventListener('mouseleave', oldHandleMouseLeave);
-                    card.dataset.hasListeners = 'false';
-                  }
-                  
-                  // 移除所有模糊效果
-                  const elements = [
-                    card.querySelector('.bili-video-card__cover'),
-                    card.querySelector('.bili-video-card__info--tit'),
-                    card.querySelector('.bili-video-card__info--bottom'),
-                    card.querySelector('.bili-video-card__info--right')
-                  ].filter(Boolean);
-                  
-                  elements.forEach(el => {
-                    el.style.removeProperty('filter');
-                    el.style.removeProperty('transition');
-                  });
+                  applyFilterEffect(card, false);
                 }
                 card.dataset.processed = 'true';
               } catch (error) {
@@ -421,12 +414,7 @@ async function processCurrentVideos() {
           } catch (error) {
             console.error('Error processing batch:', error);
             batch.forEach(({ card }) => {
-              try {
-                card.classList.remove('study-filter-temp-blur');
-                card.dataset.processed = 'true';
-              } catch (error) {
-                console.warn('Error handling batch error:', error);
-              }
+              card.dataset.processed = 'true';
             });
           }
         }
@@ -435,15 +423,28 @@ async function processCurrentVideos() {
       }
     }
 
-    // 如果所有卡片都处理完成，移除分析中提示
-    if (!hasUnprocessedCards) {
-      const wrapper = document.querySelector('.study-filter-analyzing-wrapper');
-      if (wrapper) {
-        wrapper.remove();
-      }
+    // 如果所有卡片都处理完成，隐藏并移除分析提示符
+    if (!hasUnprocessedCards && analysisWrapper) {
+      analysisWrapper.classList.remove('show');
+      // 等待过渡动画完成后移除元素
+      setTimeout(() => {
+        if (analysisWrapper && analysisWrapper.parentNode) {
+          analysisWrapper.parentNode.removeChild(analysisWrapper);
+        }
+      }, 300);
     }
   } catch (error) {
     console.error('Error in processCurrentVideos:', error);
+    // 确保在发生错误时也移除提示符
+    const analysisWrapper = document.querySelector('.study-filter-analyzing-wrapper');
+    if (analysisWrapper) {
+      analysisWrapper.classList.remove('show');
+      setTimeout(() => {
+        if (analysisWrapper && analysisWrapper.parentNode) {
+          analysisWrapper.parentNode.removeChild(analysisWrapper);
+        }
+      }, 300);
+    }
   }
 }
 
@@ -676,103 +677,75 @@ async function findVideoTitle(card) {
 }
 
 // 应用模糊效果的统一函数
-function applyBlurEffect(card, isTemporary = false) {
-  if (!card) return;
-  
-  // 如果已经处理过且不是临时模糊，直接返回
-  if (!isTemporary && card.dataset.processed === 'true') {
-    return card;
-  }
-  
-  // 如果已经有临时模糊效果，不要重复应用
-  if (isTemporary && card.dataset.tempBlur === 'true') {
-    return card;
-  }
-  
-  // 确保有唯一标识
-  if (!card.dataset.studyFilterId) {
-    card.dataset.studyFilterId = Date.now() + Math.random().toString(36).substr(2, 9);
-  }
-  
-  // 移除旧的事件监听器和样式
-  function cleanup() {
-    if (card.dataset.hasListeners === 'true') {
-      const oldHandleMouseEnter = card._handleMouseEnter;
-      const oldHandleMouseLeave = card._handleMouseLeave;
-      if (oldHandleMouseEnter) card.removeEventListener('mouseenter', oldHandleMouseEnter);
-      if (oldHandleMouseLeave) card.removeEventListener('mouseleave', oldHandleMouseLeave);
-      card.dataset.hasListeners = 'false';
+async function applyFilterEffect(card, isTemporary = false) {
+  const settings = await chrome.storage.sync.get(['filterMode']);
+  const filterMode = settings.filterMode || 'hide'; // 默认为隐藏模式
+
+  if (filterMode === 'hide') {
+    if (!isTemporary) {
+      card.classList.add('study-filter-hidden');
     }
-    
-    // 清除所有子元素的样式
-    const elements = [
-      card.querySelector('.bili-video-card__cover'),
-      card.querySelector('.bili-video-card__info--tit'),
-      card.querySelector('.bili-video-card__info--bottom'),
-      card.querySelector('.bili-video-card__info--right')
-    ].filter(Boolean);
-    
-    elements.forEach(el => {
-      el.style.removeProperty('filter');
-      el.style.removeProperty('transition');
-    });
+    return;
   }
-  
-  // 先清理旧的效果
-  cleanup();
-  
-  // 创建新的事件处理函数
-  function handleMouseEnter(e) {
-    if (e) e.stopPropagation();
-    const elements = [
-      this.querySelector('.bili-video-card__cover'),
-      this.querySelector('.bili-video-card__info--tit'),
-      this.querySelector('.bili-video-card__info--bottom'),
-      this.querySelector('.bili-video-card__info--right')
-    ].filter(Boolean);
-    
-    elements.forEach(el => {
-      el.style.filter = 'none';
-      el.style.transition = 'filter 0.3s ease';
-    });
+
+  // 以下是模糊模式的逻辑
+  const blurWrapper = document.createElement('div');
+  blurWrapper.className = 'study-filter-blur-wrapper';
+  blurWrapper.style.position = 'absolute';
+  blurWrapper.style.top = '0';
+  blurWrapper.style.left = '0';
+  blurWrapper.style.width = '100%';
+  blurWrapper.style.height = '100%';
+  blurWrapper.style.backdropFilter = 'blur(10px)';
+  blurWrapper.style.backgroundColor = 'rgba(255, 255, 255, 0.1)';
+  blurWrapper.style.zIndex = '1';
+  blurWrapper.style.cursor = 'pointer';
+  blurWrapper.style.display = 'flex';
+  blurWrapper.style.justifyContent = 'center';
+  blurWrapper.style.alignItems = 'center';
+  blurWrapper.style.transition = 'opacity 0.3s ease';
+
+  const text = document.createElement('div');
+  text.textContent = '不相关的视频已模糊处理';
+  text.style.color = '#fff';
+  text.style.textShadow = '0 0 4px rgba(0, 0, 0, 0.5)';
+  text.style.padding = '8px 16px';
+  text.style.borderRadius = '4px';
+  text.style.backgroundColor = 'rgba(0, 0, 0, 0.6)';
+  text.style.fontSize = '14px';
+  text.style.fontWeight = 'bold';
+  text.style.pointerEvents = 'none';
+
+  blurWrapper.appendChild(text);
+  card.style.position = 'relative';
+  card.appendChild(blurWrapper);
+
+  if (!isTemporary) {
+    const cleanup = () => {
+      card.removeChild(blurWrapper);
+      card.removeEventListener('mouseleave', handleMouseLeave);
+      card.removeEventListener('mouseenter', handleMouseEnter);
+    };
+
+    const handleMouseEnter = (e) => {
+      if (e.target === card || card.contains(e.target)) {
+        blurWrapper.style.opacity = '0';
+        blurWrapper.style.pointerEvents = 'none';
+      }
+    };
+
+    const handleMouseLeave = (e) => {
+      if (!card.contains(e.relatedTarget)) {
+        blurWrapper.style.opacity = '1';
+        blurWrapper.style.pointerEvents = 'auto';
+      }
+    };
+
+    card.addEventListener('mouseenter', handleMouseEnter);
+    card.addEventListener('mouseleave', handleMouseLeave);
+
+    return cleanup;
   }
-  
-  function handleMouseLeave(e) {
-    if (e) e.stopPropagation();
-    const elements = [
-      this.querySelector('.bili-video-card__cover'),
-      this.querySelector('.bili-video-card__info--tit'),
-      this.querySelector('.bili-video-card__info--bottom'),
-      this.querySelector('.bili-video-card__info--right')
-    ].filter(Boolean);
-    
-    elements.forEach(el => {
-      el.style.filter = 'blur(10px)';
-      el.style.transition = 'filter 0.3s ease';
-    });
-  }
-  
-  // 保存事件处理函数的引用
-  card._handleMouseEnter = handleMouseEnter;
-  card._handleMouseLeave = handleMouseLeave;
-  
-  // 绑定事件监听器
-  card.addEventListener('mouseenter', handleMouseEnter);
-  card.addEventListener('mouseleave', handleMouseLeave);
-  card.dataset.hasListeners = 'true';
-  
-  // 标记状态
-  if (isTemporary) {
-    card.dataset.tempBlur = 'true';
-  } else {
-    card.dataset.processed = 'true';
-    card.dataset.tempBlur = 'false';
-  }
-  
-  // 立即应用模糊效果（不传递事件对象）
-  handleMouseLeave.call(card);
-  
-  return card;
 }
 
 // 监听来自 background script 的消息
