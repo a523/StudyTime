@@ -22,6 +22,128 @@ const CONFIG = {
   RETRY_BACKOFF_FACTOR: 1.5        // 重试延迟增长因子
 };
 
+// 添加状态管理
+const State = {
+  isInitialized: false,
+  isProcessing: false,
+  retryCount: 0,
+  processingTimeout: null,
+  observer: null,
+  swipeObserver: null,
+  aiClient: null
+};
+
+// 添加 UI 组件管理
+const UI = {
+  // 创建分析提示符
+  createAnalyzer() {
+    const wrapper = document.createElement('div');
+    wrapper.className = 'study-filter-analyzing-wrapper';
+    wrapper.textContent = '分析中...';
+    document.body.appendChild(wrapper);
+    return wrapper;
+  },
+
+  // 显示分析提示符
+  showAnalyzer() {
+    let analyzer = document.querySelector('.study-filter-analyzing-wrapper');
+    if (!analyzer) {
+      analyzer = this.createAnalyzer();
+    }
+    analyzer.classList.add('show');
+    return analyzer;
+  },
+
+  // 隐藏分析提示符
+  hideAnalyzer() {
+    const analyzer = document.querySelector('.study-filter-analyzing-wrapper');
+    if (analyzer) {
+      analyzer.classList.remove('show');
+      setTimeout(() => {
+        if (analyzer.parentNode) {
+          analyzer.parentNode.removeChild(analyzer);
+        }
+      }, 300);
+    }
+  },
+
+  // 更新布局
+  updateLayout() {
+    updateGridLayout();
+  }
+};
+
+// 添加样式管理
+const Styles = {
+  mainStyles: `
+    /* 分析提示符样式 */
+    .study-filter-analyzing-wrapper {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background-color: rgba(0, 0, 0, 0.7);
+      color: white;
+      padding: 8px 16px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: bold;
+      z-index: 99999;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+      pointer-events: none;
+    }
+
+    .study-filter-analyzing-wrapper.show {
+      opacity: 1;
+    }
+
+    /* 视频卡片样式 */
+    .bili-video-card {
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .bili-video-card[data-processed="true"]:not(.study-filter-hidden) {
+      opacity: 1 !important;
+    }
+
+    /* 隐藏轮播 */
+    .recommended-swipe.grid-anchor {
+      display: none !important;
+    }
+
+    /* 网格布局样式 */
+    .feed-card,
+    .bili-grid {
+      display: grid !important;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)) !important;
+      gap: 20px !important;
+      padding: 20px !important;
+      opacity: 1 !important;
+      min-height: 0 !important; /* 防止空容器占位 */
+      height: auto !important;
+    }
+
+    /* 隐藏过滤的卡片 */
+    .study-filter-hidden {
+      display: none !important;
+      width: 0 !important;
+      height: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      opacity: 0 !important;
+      position: absolute !important;
+      pointer-events: none !important;
+    }
+  `,
+
+  inject() {
+    const style = document.createElement('style');
+    style.textContent = this.mainStyles;
+    document.head.appendChild(style);
+  }
+};
+
 // 初始化 AI 客户端
 let aiClient = null;
 
@@ -188,330 +310,66 @@ function initializeLayout() {
     recommendedSwipe.remove();
   }
 
-  // 确保容器使用正确的布局
+  // 移除 floor-single-card 卡片
+  const floorCards = document.querySelectorAll('.floor-single-card');
+  floorCards.forEach(card => {
+    if (card && card.parentElement) {
+      card.parentElement.removeChild(card);
+    }
+  });
+
+  // 移除直播卡片
+  const liveCards = document.querySelectorAll('.bili-live-card');
+  liveCards.forEach(card => {
+    const parentContainer = card.closest('.feed-card');
+    if (card.parentElement) {
+      card.parentElement.removeChild(card);
+      // 如果父容器为空，也移除父容器
+      if (parentContainer && !parentContainer.querySelector('.bili-video-card:not(.study-filter-hidden)')) {
+        parentContainer.remove();
+      }
+    }
+  });
+
+  // 初始化容器布局
   const containers = document.querySelectorAll('.bili-grid, .feed-card');
   containers.forEach(container => {
     if (container) {
-      // 确保容器可见
-      container.style.opacity = '1';
-      container.style.display = 'grid';
+      // 观察容器大小变化
+      resizeObserver.observe(container);
       
-      // 确保使用正确的布局类
+      // 初始化布局
+      container.style.display = 'grid';
+      container.style.opacity = '1';
+      
       if (!container.classList.contains('bili-grid') && !container.classList.contains('feed-card')) {
         container.classList.add('bili-grid');
       }
     }
   });
+
+  // 初始更新布局
+  updateGridLayout();
 }
 
-// 添加 MutationObserver 来监听推荐轮播元素的出现
-function observeRecommendedSwipe() {
-  const observer = new MutationObserver((mutations) => {
-    mutations.forEach((mutation) => {
-      if (mutation.addedNodes.length) {
-        const recommendedSwipe = document.querySelector('#i_cecream > div.bili-feed4 > main > div.feed2 > div > div.container.is-version8 > div.recommended-swipe.grid-anchor');
-        if (recommendedSwipe) {
-          recommendedSwipe.remove();
-        }
-      }
-    });
+// 添加清理空容器的函数
+function removeEmptyContainers() {
+  const containers = document.querySelectorAll('.feed-card');
+  containers.forEach(container => {
+    const visibleCards = container.querySelectorAll('.bili-video-card:not(.study-filter-hidden)');
+    if (!visibleCards.length && container.parentElement) {
+      container.parentElement.removeChild(container);
+    }
   });
-
-  observer.observe(document.body, {
-    childList: true,
-    subtree: true
-  });
-
-  return observer;
 }
 
-// 添加窗口大小变化监听
-window.addEventListener('resize', debounce(() => {
-  initializeLayout();
-}, 250));
-
-// 修改初始化函数
-async function initialize() {
-  if (isInitialized) return;
-  
-  try {
-    if (!chrome.runtime?.id) {
-      console.log('Extension not ready, skipping initialization');
-      return;
-    }
-
-    // 添加主样式
-    const style = document.createElement('style');
-    style.textContent = `
-      .study-filter-hidden {
-        display: none !important;
-        width: 0 !important;
-        height: 0 !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        border: 0 !important;
-        position: absolute !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-        clip: rect(0 0 0 0) !important;
-        clip-path: inset(50%) !important;
-      }
-
-      /* 修改首页瀑布流布局 */
-      .feed-card {
-        display: grid !important;
-        grid-template-columns: repeat(auto-fill, minmax(var(--card-width, 260px), 1fr)) !important;
-        gap: 20px !important;
-        padding: 20px !important;
-        box-sizing: border-box !important;
-        width: 100% !important;
-        justify-items: start !important;
-      }
-
-      /* 保持视频卡片原有大小和间距 */
-      .feed-card .bili-video-card:not(.study-filter-hidden) {
-        width: var(--card-width, 260px) !important;
-        margin: 0 !important;
-        flex: 0 0 auto !important;
-      }
-
-      /* 保持其他页面的网格布局 */
-      .bili-grid {
-        display: grid !important;
-        grid-template-columns: repeat(auto-fill, minmax(var(--card-width, 260px), 1fr)) !important;
-        gap: 20px !important;
-        padding: 20px !important;
-        justify-items: start !important;
-      }
-
-      /* 确保卡片容器正确对齐 */
-      .feed-container {
-        width: 100% !important;
-        max-width: none !important;
-        padding: 0 !important;
-        margin: 0 !important;
-      }
-
-      /* 修复可能的嵌套网格问题 */
-      .bili-grid .bili-video-card,
-      .feed-card .bili-video-card {
-        width: 100% !important;
-        max-width: var(--card-width, 260px) !important;
-        margin: 0 !important;
-      }
-    `;
-    document.head.appendChild(style);
-
-    // 初始化基本功能
-    initializeLayout();
-    
-    // 只有在需要时才加载缓存
-    const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
-    if (filterEnabled !== false) {
-      await loadCache();
-      // 立即处理当前视频
-      await processCurrentVideos();
-    } else {
-      // 如果过滤被禁用，显示所有卡片
-      document.querySelectorAll('.bili-video-card').forEach(card => {
-        card.style.opacity = '1';
-        card.dataset.processed = 'true';
-      });
-    }
-
-    // 设置观察器
-    if (!observer) {
-      observer = new MutationObserver(debounce(handleMutation, 500));
-      observer.observe(document.body, {
-        childList: true,
-        subtree: true
-      });
-    }
-
-    // 设置轮播观察器
-    if (!swipeObserver) {
-      swipeObserver = observeRecommendedSwipe();
-    }
-    
-    isInitialized = true;
-    retryCount = 0;
-    
-  } catch (error) {
-    console.warn('Initialization warning:', error);
-    if (error.message.includes('Extension context invalidated') || 
-        error.message.includes('chrome.storage is not available')) {
-      if (retryCount < MAX_RETRIES) {
-        retryCount++;
-        console.log(`Retrying initialization (${retryCount}/${MAX_RETRIES})...`);
-        setTimeout(() => initialize(), 2000);
-      }
-    }
-  }
-}
-
-// 处理初始化错误
-async function handleInitError() {
-  cleanup();
-  if (retryCount < MAX_RETRIES) {
-    retryCount++;
-    const delay = Math.min(2000 * retryCount, 10000); // 最大延迟10秒
-    console.log(`Retrying initialization (${retryCount}/${MAX_RETRIES}) in ${delay}ms...`);
-    await new Promise(resolve => setTimeout(resolve, delay));
-    await initialize();
-  } else {
-    console.warn('Max retry attempts reached, continuing with limited functionality');
-    // 重置重试计数，但不立即重试
-    retryCount = 0;
-  }
-}
-
-// 添加处理状态追踪
-let isProcessing = false;
-let processingTimeout = null;
-
-// 防抖函数
-const debouncedProcessing = debounce(async () => {
-  if (isProcessing) return;
-  
-  try {
-    isProcessing = true;
-    await processCurrentVideos();
-  } finally {
-    isProcessing = false;
-  }
-}, 1000);
-
-// 处理 DOM 变化
-async function handleMutation(mutations) {
-  try {
-    if (!chrome.runtime?.id) {
-      throw new Error('Extension context invalidated');
-    }
-
-    const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
-    if (!filterEnabled) {
-      // 如果过滤被禁用，显示所有卡片
-      document.querySelectorAll('.bili-video-card').forEach(card => {
-        card.style.removeProperty('opacity');
-        card.classList.remove('study-filter-hidden');
-        card.dataset.processed = 'true';
-      });
-      return;
-    }
-
-    if (isProcessing) return;
-    
-    // 检查是否有新的未处理卡片
-    const unprocessedCards = document.querySelectorAll('.bili-video-card:not([data-processed])');
-    if (unprocessedCards.length > 0) {
-      isProcessing = true;
-      try {
-        await processCurrentVideos();
-      } finally {
-        isProcessing = false;
-      }
-    }
-  } catch (error) {
-    console.error('Error in mutation observer:', error);
-    isProcessing = false;
-  }
-}
-
-// 清理函数
-function cleanup() {
-  if (observer) {
-    try {
-      observer.disconnect();
-    } catch (error) {
-      console.error('Error disconnecting observer:', error);
-    }
-    observer = null;
-  }
-
-  if (swipeObserver) {
-    try {
-      swipeObserver.disconnect();
-    } catch (error) {
-      console.error('Error disconnecting swipe observer:', error);
-    }
-    swipeObserver = null;
-  }
-  
-  // 清理定时器和状态
-  if (processingTimeout) {
-    clearTimeout(processingTimeout);
-    processingTimeout = null;
-  }
-  isProcessing = false;
-  isInitialized = false;
-}
-
-// 防抖函数实现
-function debounce(func, wait) {
-  let timeout;
-  return function executedFunction(...args) {
-    const later = () => {
-      clearTimeout(timeout);
-      func(...args);
-    };
-    clearTimeout(timeout);
-    timeout = setTimeout(later, wait);
-  };
-}
-
-// 添加重试工具函数
-async function retryOperation(operation, maxRetries = 3, delay = 1000) {
-  let lastError;
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      if (!chrome.runtime?.id) {
-        throw new Error('Extension context invalidated');
-      }
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      if (error.message.includes('Extension context invalidated')) {
-        await new Promise(resolve => setTimeout(resolve, delay));
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw lastError;
-}
-
-// 修改 applyFilterEffect 函数
-async function applyFilterEffect(card, isTemporary = false) {
-  try {
-    return await retryOperation(async () => {
-      const settings = await chrome.storage.sync.get(['filterMode']);
-      const filterMode = settings.filterMode || 'hide';
-
-      if (filterMode === 'hide') {
-        if (!isTemporary) {
-          card.classList.add('study-filter-hidden');
-          // 触发父容器重排
-          const container = card.parentElement;
-          if (container) {
-            container.style.display = container.style.display;
-          }
-        }
-        return;
-      }
-
-      // 模糊模式逻辑保持不变
-      // ... existing blur mode code ...
-    });
-  } catch (error) {
-    console.warn('Failed to apply filter effect:', error);
-  }
-}
-
-// 修改 processCurrentVideos 函数
+// 修改 processCurrentVideos 函数中的处理逻辑
 async function processCurrentVideos() {
   try {
     const videoCards = document.querySelectorAll('.bili-video-card:not([data-processed])');
     if (videoCards.length === 0) return;
+
+    UI.showAnalyzer();
 
     // 收集所有标题
     const cardTitles = await Promise.all(
@@ -522,7 +380,10 @@ async function processCurrentVideos() {
     );
 
     const validCardTitles = cardTitles.filter(item => item.title);
-    if (validCardTitles.length === 0) return;
+    if (validCardTitles.length === 0) {
+      UI.hideAnalyzer();
+      return;
+    }
 
     // 分批处理
     for (let i = 0; i < validCardTitles.length; i += CONFIG.BATCH_SIZE) {
@@ -533,45 +394,46 @@ async function processCurrentVideos() {
         // 处理每个卡片
         await Promise.all(batch.map(async ({ card, title }, index) => {
           try {
+            card.dataset.processed = 'true';
             if (results[index]) {
               // 符合要求的视频
               card.classList.remove('study-filter-hidden');
               card.style.removeProperty('opacity');
             } else {
-              // 不符合要求的视频
-              card.classList.add('study-filter-hidden');
+              // 不符合要求的视频，直接从 DOM 中移除
+              const parentContainer = card.closest('.feed-card');
               if (card.parentElement) {
                 card.parentElement.removeChild(card);
+                
+                // 如果父容器为空，也移除父容器
+                if (parentContainer && !parentContainer.querySelector('.bili-video-card:not(.study-filter-hidden)')) {
+                  parentContainer.remove();
+                }
               }
             }
           } catch (error) {
             console.warn('Error processing card:', error);
-          } finally {
-            // 标记为已处理
-            card.dataset.processed = 'true';
           }
         }));
 
-        // 强制重排容器
-        const containers = document.querySelectorAll('.bili-grid, .feed-card');
-        containers.forEach(container => {
-          if (container) {
-            const oldDisplay = container.style.display;
-            container.style.display = 'none';
-            container.offsetHeight; // 强制重排
-            container.style.display = oldDisplay;
-          }
-        });
+        // 更新布局
+        updateGridLayout();
       } catch (error) {
         console.error('Error processing batch:', error);
-        // 标记批次中的所有卡片为已处理，避免无限重试
         batch.forEach(({ card }) => {
           card.dataset.processed = 'true';
         });
       }
     }
+
+    // 最后再次清理空容器
+    removeEmptyContainers();
+
+    // 隐藏分析提示符
+    UI.hideAnalyzer();
   } catch (error) {
     console.error('Error in processCurrentVideos:', error);
+    UI.hideAnalyzer();
   }
 }
 
@@ -917,4 +779,235 @@ try {
   if (!handleError(error)) {
     console.error('Unhandled error:', error);
   }
+} 
+
+// 修改布局更新函数
+function updateGridLayout() {
+  const containers = document.querySelectorAll('.feed-card, .bili-grid');
+  containers.forEach(container => {
+    // 获取所有非隐藏的视频卡片
+    const visibleCards = container.querySelectorAll('.bili-video-card:not(.study-filter-hidden)');
+    
+    if (visibleCards.length > 0) {
+      // 如果有可见的卡片，确保容器可见并使用网格布局
+      container.style.display = 'grid';
+      container.style.opacity = '1';
+      container.style.height = 'auto';
+      container.style.minHeight = '0';
+    } else {
+      // 如果没有可见的卡片，将容器高度设为0
+      container.style.height = '0';
+      container.style.minHeight = '0';
+      container.style.overflow = 'hidden';
+      container.style.margin = '0';
+      container.style.padding = '0';
+    }
+  });
+}
+
+// 添加 ResizeObserver 来监听容器大小变化
+const resizeObserver = new ResizeObserver(entries => {
+  for (const entry of entries) {
+    const container = entry.target;
+    if (container.classList.contains('feed-card') || container.classList.contains('bili-grid')) {
+      updateGridLayout();
+    }
+  }
+}); 
+
+// 添加初始化函数
+async function initialize() {
+  if (State.isInitialized) return;
+  
+  try {
+    if (!chrome.runtime?.id) {
+      console.log('Extension not ready, skipping initialization');
+      return;
+    }
+
+    // 注入样式
+    Styles.inject();
+
+    // 初始化布局
+    initializeLayout();
+    
+    // 处理过滤
+    const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
+    if (filterEnabled !== false) {
+      await loadCache();
+      await processCurrentVideos();
+    } else {
+      document.querySelectorAll('.bili-video-card').forEach(card => {
+        card.style.removeProperty('opacity');
+        card.dataset.processed = 'true';
+      });
+    }
+
+    // 设置观察器
+    if (!State.observer) {
+      State.observer = new MutationObserver(debounce(handleMutation, 500));
+      State.observer.observe(document.body, {
+        childList: true,
+        subtree: true
+      });
+    }
+
+    // 设置布局观察器
+    if (!State.swipeObserver) {
+      State.swipeObserver = observeLayoutChanges();
+    }
+    
+    State.isInitialized = true;
+    State.retryCount = 0;
+    
+  } catch (error) {
+    console.warn('Initialization warning:', error);
+    if (error.message.includes('Extension context invalidated') || 
+        error.message.includes('chrome.storage is not available')) {
+      if (State.retryCount < MAX_RETRIES) {
+        State.retryCount++;
+        console.log(`Retrying initialization (${State.retryCount}/${MAX_RETRIES})...`);
+        setTimeout(() => initialize(), 2000);
+      }
+    }
+  }
+}
+
+// 添加清理函数
+function cleanup() {
+  // 断开所有观察器
+  if (State.observer) {
+    try {
+      State.observer.disconnect();
+    } catch (error) {
+      console.error('Error disconnecting observer:', error);
+    }
+    State.observer = null;
+  }
+
+  if (State.swipeObserver) {
+    try {
+      State.swipeObserver.disconnect();
+    } catch (error) {
+      console.error('Error disconnecting swipe observer:', error);
+    }
+    State.swipeObserver = null;
+  }
+
+  if (resizeObserver) {
+    try {
+      resizeObserver.disconnect();
+    } catch (error) {
+      console.error('Error disconnecting resize observer:', error);
+    }
+  }
+  
+  // 清理定时器
+  if (State.processingTimeout) {
+    clearTimeout(State.processingTimeout);
+    State.processingTimeout = null;
+  }
+
+  // 移除分析提示符
+  UI.hideAnalyzer();
+  
+  // 重置状态
+  State.isProcessing = false;
+  State.isInitialized = false;
+  State.retryCount = 0;
+}
+
+// 添加防抖函数
+function debounce(func, wait) {
+  let timeout;
+  return function executedFunction(...args) {
+    const later = () => {
+      clearTimeout(timeout);
+      func(...args);
+    };
+    clearTimeout(timeout);
+    timeout = setTimeout(later, wait);
+  };
+}
+
+// 添加 handleMutation 函数
+async function handleMutation(mutations) {
+  try {
+    if (!chrome.runtime?.id) {
+      throw new Error('Extension context invalidated');
+    }
+
+    const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
+    if (!filterEnabled) {
+      // 如果过滤被禁用，显示所有卡片
+      document.querySelectorAll('.bili-video-card').forEach(card => {
+        card.style.removeProperty('opacity');
+        card.classList.remove('study-filter-hidden');
+        card.dataset.processed = 'true';
+      });
+      return;
+    }
+
+    if (State.isProcessing) return;
+    
+    // 检查是否有新的未处理卡片
+    const unprocessedCards = document.querySelectorAll('.bili-video-card:not([data-processed])');
+    if (unprocessedCards.length > 0) {
+      State.isProcessing = true;
+      try {
+        await processCurrentVideos();
+      } finally {
+        State.isProcessing = false;
+      }
+    }
+  } catch (error) {
+    console.error('Error in mutation observer:', error);
+    State.isProcessing = false;
+  }
+}
+
+// 添加布局观察器函数
+function observeLayoutChanges() {
+  const observer = new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      if (mutation.addedNodes.length) {
+        // 移除推荐轮播
+        const recommendedSwipe = document.querySelector('#i_cecream > div.bili-feed4 > main > div.feed2 > div > div.container.is-version8 > div.recommended-swipe.grid-anchor');
+        if (recommendedSwipe) {
+          recommendedSwipe.remove();
+        }
+
+        // 移除 floor-single-card 卡片
+        const floorCards = document.querySelectorAll('.floor-single-card');
+        floorCards.forEach(card => {
+          if (card && card.parentElement) {
+            card.parentElement.removeChild(card);
+          }
+        });
+
+        // 移除直播卡片
+        const liveCards = document.querySelectorAll('.bili-live-card');
+        liveCards.forEach(card => {
+          const parentContainer = card.closest('.feed-card');
+          if (card.parentElement) {
+            card.parentElement.removeChild(card);
+            // 如果父容器为空，也移除父容器
+            if (parentContainer && !parentContainer.querySelector('.bili-video-card:not(.study-filter-hidden)')) {
+              parentContainer.remove();
+            }
+          }
+        });
+
+        // 更新布局
+        updateGridLayout();
+      }
+    });
+  });
+
+  observer.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+
+  return observer;
 } 
