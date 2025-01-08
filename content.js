@@ -26,6 +26,7 @@ const CONFIG = {
 const State = {
   isInitialized: false,
   isProcessing: false,
+  isPreloading: false,  // 新增：是否正在预加载
   retryCount: 0,
   processingTimeout: null,
   observer: null,
@@ -98,7 +99,7 @@ const UI = {
       const stats = analyzer.querySelector('.study-filter-analyzing-stats');
       if (progress && stats) {
         progress.textContent = '过滤完成';
-        stats.textContent = `共分析 ${this.stats.total} 个视频，移除了 ${this.stats.removed} 个不相关视频，下滑可以加载更多，或者你可以通过搜索获得更多相关视频。`;
+        stats.textContent = `共分析 ${this.stats.total} 个视频，移除了 ${this.stats.removed} 个不相关视频，下滑可以加载更多，或者通过搜索获得更多相关视频。`;
       }
       
       // 5秒后隐藏提示
@@ -437,14 +438,82 @@ function removeEmptyContainers() {
   });
 }
 
-// 修改 processCurrentVideos 函数中的处理逻辑
+// 添加预加载提示函数
+function showPreloadingTip() {
+  console.log('显示预加载提示');
+  const analyzer = UI.showAnalyzer();
+  if (analyzer) {
+    const progress = analyzer.querySelector('.study-filter-analyzing-progress');
+    const stats = analyzer.querySelector('.study-filter-analyzing-stats');
+    if (progress && stats) {
+      progress.textContent = '正在加载新内容...';
+      stats.textContent = '准备分析新的视频';
+    }
+    // 确保提示是可见的
+    analyzer.style.display = 'block';
+    analyzer.style.opacity = '1';
+  }
+}
+
+// 修改 handleMutation 函数
+async function handleMutation(mutations) {
+  try {
+    if (!chrome.runtime?.id) {
+      throw new Error('Extension context invalidated');
+    }
+
+    const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
+    if (!filterEnabled) {
+      // 如果过滤被禁用，显示所有卡片
+      document.querySelectorAll('.bili-video-card').forEach(card => {
+        card.style.removeProperty('opacity');
+        card.classList.remove('study-filter-hidden');
+        card.dataset.processed = 'true';
+      });
+      return;
+    }
+
+    // 检查是否有新的未处理卡片
+    const unprocessedCards = document.querySelectorAll('.bili-video-card:not([data-processed])');
+    if (unprocessedCards.length > 0 && !State.isProcessing) {
+      State.isProcessing = true;
+      try {
+        await processCurrentVideos();
+      } finally {
+        State.isProcessing = false;
+      }
+    }
+  } catch (error) {
+    console.error('Error in mutation observer:', error);
+    State.isProcessing = false;
+  }
+}
+
+// 修改 processCurrentVideos 函数中的相关部分
 async function processCurrentVideos() {
   try {
     const videoCards = document.querySelectorAll('.bili-video-card:not([data-processed])');
     if (videoCards.length === 0) return;
 
     UI.stats.removed = 0;
-    UI.showAnalyzer();
+    
+    // 更新提示为分析状态
+    const analyzer = document.querySelector('.study-filter-analyzing-wrapper');
+    if (analyzer) {
+      const progress = analyzer.querySelector('.study-filter-analyzing-progress');
+      const stats = analyzer.querySelector('.study-filter-analyzing-stats');
+      if (progress && stats) {
+        progress.textContent = '正在分析视频内容...';
+        stats.textContent = '准备分析中...';
+      }
+      // 确保提示是可见的
+      analyzer.style.display = 'block';
+      analyzer.style.opacity = '1';
+    } else {
+      // 如果提示不存在，创建一个新的
+      UI.showAnalyzer();
+    }
+    
     UI.updateProgress(0, videoCards.length);
 
     // 收集所有标题
@@ -890,7 +959,47 @@ const resizeObserver = new ResizeObserver(entries => {
   }
 }); 
 
-// 添加初始化函数
+// 添加滚动监听
+function setupScrollListener() {
+  let scrollTimeout;
+  let lastScrollY = window.scrollY;
+  
+  window.addEventListener('scroll', () => {
+    clearTimeout(scrollTimeout);
+    
+    // 检查是否是向下滚动
+    const currentScrollY = window.scrollY;
+    if (currentScrollY > lastScrollY) {
+      // 检查是否接近底部
+      const scrolledToBottom = window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 1000;
+      
+      if (scrolledToBottom) {
+        // 显示加载提示
+        const analyzer = UI.showAnalyzer();
+        if (analyzer) {
+          const progress = analyzer.querySelector('.study-filter-analyzing-progress');
+          const stats = analyzer.querySelector('.study-filter-analyzing-stats');
+          if (progress && stats) {
+            progress.textContent = '正在加载新内容...';
+            stats.textContent = '准备分析新的视频';
+          }
+          analyzer.classList.add('show');
+        }
+      }
+    }
+    
+    lastScrollY = currentScrollY;
+    
+    // 如果 2 秒内没有新的滚动事件，并且没有在处理中，就隐藏提示
+    scrollTimeout = setTimeout(() => {
+      if (!State.isProcessing) {
+        UI.hideAnalyzer();
+      }
+    }, 2000);
+  });
+}
+
+// 修改初始化函数
 async function initialize() {
   if (State.isInitialized) return;
   
@@ -902,6 +1011,9 @@ async function initialize() {
 
     // 注入样式
     Styles.inject();
+
+    // 设置滚动监听（替换原来的网络请求监听）
+    setupScrollListener();
 
     // 初始化布局
     initializeLayout();
@@ -988,6 +1100,7 @@ function cleanup() {
   
   // 重置状态
   State.isProcessing = false;
+  State.isPreloading = false;
   State.isInitialized = false;
   State.retryCount = 0;
 }
@@ -1003,42 +1116,6 @@ function debounce(func, wait) {
     clearTimeout(timeout);
     timeout = setTimeout(later, wait);
   };
-}
-
-// 添加 handleMutation 函数
-async function handleMutation(mutations) {
-  try {
-    if (!chrome.runtime?.id) {
-      throw new Error('Extension context invalidated');
-    }
-
-    const { filterEnabled } = await chrome.storage.sync.get('filterEnabled');
-    if (!filterEnabled) {
-      // 如果过滤被禁用，显示所有卡片
-      document.querySelectorAll('.bili-video-card').forEach(card => {
-        card.style.removeProperty('opacity');
-        card.classList.remove('study-filter-hidden');
-        card.dataset.processed = 'true';
-      });
-      return;
-    }
-
-    if (State.isProcessing) return;
-    
-    // 检查是否有新的未处理卡片
-    const unprocessedCards = document.querySelectorAll('.bili-video-card:not([data-processed])');
-    if (unprocessedCards.length > 0) {
-      State.isProcessing = true;
-      try {
-        await processCurrentVideos();
-      } finally {
-        State.isProcessing = false;
-      }
-    }
-  } catch (error) {
-    console.error('Error in mutation observer:', error);
-    State.isProcessing = false;
-  }
 }
 
 // 添加布局观察器函数
