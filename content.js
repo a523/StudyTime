@@ -124,6 +124,7 @@ const UI = {
 
   // 更新布局
   updateLayout() {
+    ensureVideoCardsWrapped();
     updateGridLayout();
   }
 };
@@ -350,26 +351,7 @@ function initializeLayout() {
     recommendedSwipe.remove();
   }
 
-  // 移除 floor-single-card 卡片
-  const floorCards = document.querySelectorAll('.floor-single-card');
-  floorCards.forEach(card => {
-    if (card && card.parentElement) {
-      card.parentElement.removeChild(card);
-    }
-  });
 
-  // 移除直播卡片
-  const liveCards = document.querySelectorAll('.bili-live-card');
-  liveCards.forEach(card => {
-    const parentContainer = card.closest('.feed-card');
-    if (card.parentElement) {
-      card.parentElement.removeChild(card);
-      // 如果父容器为空，也移除父容器
-      if (parentContainer && !parentContainer.querySelector('.bili-video-card:not(.study-filter-hidden)')) {
-        parentContainer.remove();
-      }
-    }
-  });
 
   // 初始化容器布局
   const containers = document.querySelectorAll('.bili-grid, .feed-card');
@@ -462,7 +444,7 @@ async function processCurrentVideos() {
 
     UI.stats.removed = 0;
     
-    // 更新提示为分析状态
+    // Update analyzer to analyzing state
     const analyzer = document.querySelector('.study-filter-analyzing-wrapper');
     if (analyzer) {
       const progress = analyzer.querySelector('.study-filter-analyzing-progress');
@@ -471,17 +453,14 @@ async function processCurrentVideos() {
         progress.textContent = '正在分析视频内容...';
         stats.textContent = '准备分析中...';
       }
-      // 确保提示是可见的
       analyzer.style.display = 'block';
       analyzer.style.opacity = '1';
     } else {
-      // 如果提示不存在，创建一个新的
       UI.showAnalyzer();
     }
     
     UI.updateProgress(0, videoCards.length);
 
-    // 收集所有标题
     const cardTitles = await Promise.all(
       Array.from(videoCards).map(async card => ({
         card,
@@ -495,13 +474,11 @@ async function processCurrentVideos() {
       return;
     }
 
-    // 分批处理
     for (let i = 0; i < validCardTitles.length; i += CONFIG.BATCH_SIZE) {
       const batch = validCardTitles.slice(i, i + CONFIG.BATCH_SIZE);
       try {
         const results = await checkMultipleContents(batch.map(item => item.title));
         
-        // 处理每个卡片
         await Promise.all(batch.map(async ({ card, title }, index) => {
           try {
             card.dataset.processed = 'true';
@@ -509,15 +486,8 @@ async function processCurrentVideos() {
               card.classList.remove('study-filter-hidden');
               card.style.removeProperty('opacity');
             } else {
-              const parentContainer = card.closest('.feed-card');
-              if (card.parentElement) {
-                card.parentElement.removeChild(card);
-                UI.stats.removed++;
-                
-                if (parentContainer && !parentContainer.querySelector('.bili-video-card:not(.study-filter-hidden)')) {
-                  parentContainer.remove();
-                }
-              }
+              card.classList.add('study-filter-hidden');
+              card.style.opacity = '0';
             }
             UI.updateProgress(UI.stats.processed + index + 1, UI.stats.total);
           } catch (error) {
@@ -525,7 +495,6 @@ async function processCurrentVideos() {
           }
         }));
 
-        // 更新布局
         updateGridLayout();
       } catch (error) {
         console.error('Error processing batch:', error);
@@ -535,10 +504,8 @@ async function processCurrentVideos() {
       }
     }
 
-    // 最后再次清理空容器
     removeEmptyContainers();
 
-    // 显示过滤结果
     UI.showFilterResult();
   } catch (error) {
     console.error('Error in processCurrentVideos:', error);
@@ -1093,27 +1060,6 @@ function observeLayoutChanges() {
         if (recommendedSwipe) {
           recommendedSwipe.remove();
         }
-
-        // 移除 floor-single-card 卡片
-        const floorCards = document.querySelectorAll('.floor-single-card');
-        floorCards.forEach(card => {
-          if (card && card.parentElement) {
-            card.parentElement.removeChild(card);
-          }
-        });
-
-        // 移除直播卡片
-        const liveCards = document.querySelectorAll('.bili-live-card');
-        liveCards.forEach(card => {
-          const parentContainer = card.closest('.feed-card');
-          if (card.parentElement) {
-            card.parentElement.removeChild(card);
-            // 如果父容器为空，也移除父容器
-            if (parentContainer && !parentContainer.querySelector('.bili-video-card:not(.study-filter-hidden)')) {
-              parentContainer.remove();
-            }
-          }
-        });
 
         // 更新布局
         updateGridLayout();
